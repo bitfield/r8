@@ -57,6 +57,8 @@ pub enum InstructionKind {
     Pop(Reg),
     /// Push a register value to the stack.
     Push(Reg),
+    /// Push the status register to the stack.
+    PushPS,
     /// Return from a subroutine call.
     Ret,
     /// Return from a trap.
@@ -106,6 +108,7 @@ impl Display for InstructionKind {
                 Nop => "nop".to_owned(),
                 Pop(reg) => format!("pop {reg}"),
                 Push(reg) => format!("push {reg}"),
+                PushPS => "push ps".to_owned(),
                 Ret => "ret".to_owned(),
                 Rti => "rti".to_owned(),
                 Sec => "sec".to_owned(),
@@ -150,6 +153,7 @@ impl TryFrom<u8> for InstructionKind {
             0x80..=0x87 => And(reg?),
             0xA8..=0xAF => Lsr(reg2?),
             0xD0..=0xDB => Push(reg?),
+            0xDC => PushPS,
             0xE0..=0xEB => Pop(reg?),
             0xF0 => BranchAlways,
             0xF1 => BranchEq,
@@ -192,6 +196,7 @@ impl From<InstructionKind> for u8 {
             Nop => 0x01,
             Pop(reg) => 0xE0 | u8::from(reg),
             Push(reg) => 0xD0 | u8::from(reg),
+            PushPS => 0xDC,
             Ret => 0x08,
             Rti => 0x09,
             Sec => 0x03,
@@ -209,7 +214,9 @@ impl InstructionKind {
     pub fn operands(&self) -> Operands {
         use Operands::*;
         match *self {
-            Clc | Dec(_) | Halt | Inc(_) | Nop | Push(_) | Pop(_) | Ret | Rti | Sec => Zero,
+            Clc | Dec(_) | Halt | Inc(_) | Nop | Push(_) | PushPS | Pop(_) | Ret | Rti | Sec => {
+                Zero
+            }
             Add(_) | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchNe
             | DecIndirect | IncIndirect | LdRegIndirect | LdRegReg | Lsr(_) | StoreRegIndirect
             | Sub(_) | Trap => One,

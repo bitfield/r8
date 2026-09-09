@@ -540,9 +540,11 @@ impl Assembler {
     ///
     /// * Invalid register name.
     pub fn gen_push(&mut self) -> Result<()> {
-        let reg = self.expect_reg()?;
-        self.emit_byte(u8::from(Push(reg)))?;
-        Ok(())
+        match self.next_token()? {
+            Identifier(id) if id == "ps" => self.emit_byte(u8::from(PushPS)),
+            Register(reg) => self.emit_byte(u8::from(Push(reg))),
+            other => bail!("expected register name, got {other}"),
+        }
     }
 
     /// Generates a store register direct instruction.
@@ -635,7 +637,7 @@ impl Assembler {
             .tokens
             .get(self.cursor)
             .ok_or(anyhow!("unexpected end of input"))?;
-        self.cursor = self.cursor.strict_add(1);
+        self.cursor = self.cursor.checked_add(1).context("token count overflow")?;
         Ok(token.clone())
     }
 
@@ -741,6 +743,7 @@ impl Iterator for Disassembler<'_> {
                 Nop => "nop".into(),
                 Pop(reg) => format!("pop {reg}"),
                 Push(reg) => format!("push {reg}"),
+                PushPS => "push ps".into(),
                 Ret => "ret".into(),
                 Rti => "rti".into(),
                 Sec => "sec".into(),
@@ -1471,6 +1474,7 @@ mod tests {
             ("nop", &[u8::from(Nop)]),
             ("pop e", &[u8::from(Pop(E))]),
             ("push c", &[u8::from(Push(C))]),
+            ("push ps", &[u8::from(PushPS)]),
             ("ret", &[u8::from(Ret)]),
             ("rti", &[u8::from(Rti)]),
             ("sec", &[u8::from(Sec)]),
@@ -1556,6 +1560,7 @@ mod tests {
             "org 0xFFFF\nld a, 0x01",
             "pop 0x01",
             "push",
+            "push ps, 0x01",
             "ret cd",
             "rti 0x0100",
             "sec ab",

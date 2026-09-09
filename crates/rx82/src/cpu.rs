@@ -315,6 +315,7 @@ impl Cpu {
             Lsr(reg) => self.lsr(reg, self.op_lo),
             Pop(reg) => self.pop(reg, bus),
             Push(reg) => self.push(reg, bus),
+            PushPS => self.push_ps(bus),
             Ret => self.ret(bus),
             Rti => self.rti(bus),
             Sec => self.flags.carry = true,
@@ -440,6 +441,12 @@ impl Cpu {
         }
     }
 
+    /// Executes a `push ps` instruction.
+    pub fn push_ps(&mut self, bus: &mut Bus) {
+        let val = u8::from(self.flags);
+        self.stack_push(val, bus);
+    }
+
     /// Resets the CPU to its power-on state.
     ///
     /// The initial state is: all registers and flags zero, not halted, state
@@ -527,12 +534,21 @@ impl Cpu {
 }
 
 /// The state of the CPU's flag bits.
-#[derive(Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Flags {
     /// Indicates carry (from addition) or 'no borrow' (from subtraction or comparison).
     pub carry: bool,
     /// Indicates a zero result from the last operation.
     pub zero: bool,
+}
+
+impl From<Flags> for u8 {
+    fn from(flags: Flags) -> Self {
+        let mut value = 0x00;
+        value |= u8::from(flags.carry);
+        value |= u8::from(flags.zero).strict_shl(1);
+        value
+    }
 }
 
 /// The state of the CPU on the next tick.
@@ -1548,6 +1564,15 @@ mod tests {
     }
 
     #[test]
+    fn ps_is_correctly_encoded() {
+        let flags = Flags {
+            carry: true,
+            zero: true,
+        };
+        assert_eq!(u8::from(flags), 0x03);
+    }
+
+    #[test]
     fn push() {
         let mut sys = System::default();
         sys.test_asm(
@@ -1563,6 +1588,22 @@ mod tests {
         assert_hex!(sys.mem.get(0xBFFF), 0xFF, "wrong stack value for A");
         assert_hex!(sys.mem.get(0xBFFE), 0xFE, "wrong stack value for D");
         assert_hex!(sys.mem.get(0xBFFD), 0xCA, "wrong stack value for C");
+    }
+
+    #[test]
+    fn push_ps() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld sp, 0xBFFF
+                sec
+                inc a
+                dec a
+                push ps
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(SP), 0xBFFE, "wrong SP");
+        assert_hex!(sys.mem.get(0xBFFF), 0x03, "wrong PS value on stack");
     }
 
     #[test]
