@@ -14,7 +14,7 @@ use std::{
 
 use r8cpu::{
     instructions::InstructionKind::{self, *},
-    regs::{self, Reg, source_and_target_from, source_from, u8_from},
+    regs::{Reg, RegToReg},
 };
 
 use Token::*;
@@ -346,11 +346,10 @@ impl Assembler {
     pub fn gen_dec(&mut self) -> Result<()> {
         match self.next_token()? {
             ParenOpen => match self.next_token()? {
-                Register(source) if source.is16() => {
+                Register(reg) if reg.is16() => {
                     self.expect(&ParenClose)?;
                     self.emit_byte(u8::from(DecIndirect))?;
-                    let reg = u8_from(source, Reg::A); // dummy target
-                    self.emit_byte(reg)?;
+                    self.emit_byte(u8::from(reg))?;
                 }
                 WordLiteral(addr) => {
                     self.expect(&ParenClose)?;
@@ -373,11 +372,10 @@ impl Assembler {
     pub fn gen_inc(&mut self) -> Result<()> {
         match self.next_token()? {
             ParenOpen => match self.next_token()? {
-                Register(source) if source.is16() => {
+                Register(reg) if reg.is16() => {
                     self.expect(&ParenClose)?;
                     self.emit_byte(u8::from(IncIndirect))?;
-                    let reg = u8_from(source, Reg::A); // dummy target
-                    self.emit_byte(reg)?;
+                    self.emit_byte(u8::from(reg))?;
                 }
                 WordLiteral(addr) => {
                     self.expect(&ParenClose)?;
@@ -491,7 +489,7 @@ impl Assembler {
         self.emit_byte(u8::from(LdRegIndirect))?;
         let source = self.expect_reg16()?;
         self.expect(&ParenClose)?;
-        self.emit_byte(regs::u8_from(source, target))?;
+        self.emit_byte(u8::from(RegToReg{source, target}))?;
         Ok(())
     }
 
@@ -505,7 +503,7 @@ impl Assembler {
             bail!("expected same size register, got '{source}'")
         }
         self.emit_byte(u8::from(LdRegReg))?;
-        self.emit_byte(regs::u8_from(source, target))
+        self.emit_byte(u8::from(RegToReg{source, target}))
     }
 
     /// Generates a logical shift right instruction.
@@ -573,7 +571,7 @@ impl Assembler {
         self.expect(&Comma)?;
         let source = self.expect_reg8()?;
         self.emit_byte(u8::from(StoreRegIndirect))?;
-        self.emit_byte(regs::u8_from(source, target))?;
+        self.emit_byte(u8::from(RegToReg{source, target}))?;
         Ok(())
     }
 
@@ -772,11 +770,11 @@ impl<'code> Disassembler<'code> {
     /// Reads an operand specifying the source register and formats the
     /// instruction for display.
     fn format_dec_indirect(&mut self) -> String {
-        if let Some(&regs) = self.code.next()
-            && let Some(source) = source_from(regs)
-            && source.is16()
+        if let Some(&encoded_reg) = self.code.next()
+            && let Ok(reg) = Reg::try_from(encoded_reg)
+            && reg.is16()
         {
-            format!("dec ({source})")
+            format!("dec ({reg})")
         } else {
             "??? (no operand)".to_owned()
         }
@@ -785,11 +783,11 @@ impl<'code> Disassembler<'code> {
     /// Reads an operand specifying the source register and formats the
     /// instruction for display.
     fn format_inc_indirect(&mut self) -> String {
-        if let Some(&regs) = self.code.next()
-            && let Some(source) = source_from(regs)
-            && source.is16()
+        if let Some(&encoded_reg) = self.code.next()
+            && let Ok(reg) = Reg::try_from(encoded_reg)
+            && reg.is16()
         {
-            format!("inc ({source})")
+            format!("inc ({reg})")
         } else {
             "??? (no operand)".to_owned()
         }
@@ -799,7 +797,7 @@ impl<'code> Disassembler<'code> {
     /// instruction for display.
     fn format_ld_reg_indirect(&mut self) -> String {
         if let Some(&regs) = self.code.next()
-            && let Some((source, target)) = source_and_target_from(regs)
+            && let Ok(RegToReg{source, target}) = RegToReg::try_from(regs)
         {
             format!("ld {target}, ({source})")
         } else {
@@ -811,7 +809,7 @@ impl<'code> Disassembler<'code> {
     /// instruction for display.
     fn format_ld_reg_reg(&mut self) -> String {
         if let Some(&regs) = self.code.next()
-            && let Some((source, target)) = source_and_target_from(regs)
+            && let Ok(RegToReg{source, target}) = RegToReg::try_from(regs)
         {
             format!("ld {target}, {source}")
         } else {
@@ -832,7 +830,7 @@ impl<'code> Disassembler<'code> {
     /// instruction for display.
     fn format_store_reg_indirect(&mut self) -> String {
         if let Some(&regs) = self.code.next()
-            && let Some((source, target)) = source_and_target_from(regs)
+            && let Ok(RegToReg{source, target}) = RegToReg::try_from(regs)
         {
             format!("ld ({target}), {source}")
         } else {
@@ -1453,12 +1451,12 @@ mod tests {
             ("cmp d, 0x01", &[u8::from(Cmp(D)), 0x01]),
             ("cmp gh, 0xDEAD", &[u8::from(Cmp(GH)), 0xAD, 0xDE]),
             ("dec (0xBABE)", &[u8::from(DecMem), 0xBE, 0xBA]),
-            ("dec (gh)", &[u8::from(DecIndirect), 0xB0]),
+            ("dec (gh)", &[u8::from(DecIndirect), 0x0B]),
             ("dec ab", &[u8::from(Dec(AB))]),
             ("dec g", &[u8::from(Dec(G))]),
             ("halt", &[u8::from(Halt)]),
             ("inc (0xCAFE)", &[u8::from(IncMem), 0xFE, 0xCA]),
-            ("inc (cd)", &[u8::from(IncIndirect), 0x90]),
+            ("inc (cd)", &[u8::from(IncIndirect), 0x09]),
             ("inc a", &[u8::from(Inc(A))]),
             ("inc ef", &[u8::from(Inc(EF))]),
             ("jmp 0x1234", &[u8::from(Jmp), 0x34, 0x12]),

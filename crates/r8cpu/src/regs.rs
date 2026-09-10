@@ -123,6 +123,31 @@ impl Reg {
     }
 }
 
+pub struct RegToReg {
+    pub source: Reg,
+    pub target: Reg,
+}
+
+impl From<RegToReg> for u8 {
+    fn from(input: RegToReg) -> Self {
+        (u8::from(input.source) << 4_u8) | u8::from(input.target)
+    }
+}
+
+impl TryFrom<u8> for RegToReg {
+    type Error = anyhow::Error;
+
+    fn try_from(encoded_regs: u8) -> Result<Self, Self::Error> {
+        if let Ok(source) = Reg::try_from(encoded_regs.strict_shr(4))
+            && let Ok(target) = Reg::try_from(encoded_regs & 0x0F)
+        {
+            Ok(Self { source, target })
+        } else {
+            bail!("invalid register id {encoded_regs:#04X}")
+        }
+    }
+}
+
 /// The CPU registers.
 #[derive(Debug, Default)]
 pub struct Regs {
@@ -198,41 +223,6 @@ impl Regs {
             other => unreachable!("set16() called with 8-bit register '{other}'"),
         }
     }
-}
-
-/// Returns the source and target registers specified by `regs`.
-///
-/// The source register ID is encoded in the high nibble, the target register in the low
-/// nibble. For example, in the instruction `ld a, (cd)` (load register indirect), the
-/// source register is `cd` and the target register is `a`. The instruction is followed
-/// by an operand byte encoding these registers as 0x91 (9 = 0b1001 = `cd`, 1 = 0b0001 =
-/// `a`).
-#[must_use]
-pub fn source_and_target_from(regs: u8) -> Option<(Reg, Reg)> {
-    if let Some(source) = source_from(regs)
-        && let Ok(target) = Reg::try_from(regs & 0x0F)
-    {
-        Some((source, target))
-    } else {
-        None
-    }
-}
-
-/// Returns the source register specified by `reg`.
-///
-/// The encoding is as for [`source_and_target_from`], except that only the high nibble
-/// is encoded.
-#[must_use]
-pub fn source_from(reg: u8) -> Option<Reg> {
-    Reg::try_from((reg & 0x0F0) >> 4_u8).ok()
-}
-
-/// Returns the operand byte encoding `source` and `target` registers.
-///
-/// See [`source_and_target_from`] for details of the encoding.
-#[must_use]
-pub fn u8_from(source: Reg, target: Reg) -> u8 {
-    (u8::from(source) << 4_u8) | u8::from(target)
 }
 
 #[cfg(test)]
