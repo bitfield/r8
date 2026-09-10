@@ -308,8 +308,14 @@ impl Cpu {
             Inc(reg) => self.inc(reg),
             IncIndirect => self.inc_indirect(bus),
             IncMem => self.inc_mem(self.op(), bus),
-            LdRegImm(reg) if reg.is16() => self.regs.set16(reg, self.op()),
-            LdRegImm(reg) => self.regs.set(reg, self.op_lo),
+            LdRegImm(reg) if reg.is16() => {
+                self.regs.set16(reg, self.op());
+                self.flags.zero = self.op() == 0;
+            }
+            LdRegImm(reg) => {
+                self.regs.set(reg, self.op_lo);
+                self.flags.zero = self.op_lo == 0;
+            }
             LdRegIndirect => self.ld_reg_indirect(bus),
             LdRegReg => self.ld_reg_reg(bus),
             Lsr(reg) => self.lsr(reg, self.op_lo),
@@ -1362,7 +1368,6 @@ mod tests {
                 inc ab
                 halt",
         );
-        sys.debug_print();
         assert_hex!(sys.cpu.regs.get16(AB), 0x0001, "wrong AB");
         assert_eq!(sys.cpu.flags.zero, false, "zero set: inc to non-zero");
         sys.test_asm(
@@ -1451,32 +1456,53 @@ mod tests {
     #[test]
     fn ld_reg_imm8() {
         let mut sys = System::default();
+        sys.cpu.flags.zero = true;
         sys.test_asm(
             "
                 ld a, 0xFF
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(A), 0xFF, "wrong A");
+        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
+        assert_hex!(sys.cpu.pc, 0x0103, "wrong PC");
+        sys.cpu.flags.zero = false;
+        sys.test_asm(
+            "
+                ld a, 0x00
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
+        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
         assert_hex!(sys.cpu.pc, 0x0103, "wrong PC");
     }
 
     #[test]
     fn ld_reg_imm16() {
         let mut sys = System::default();
+        sys.cpu.flags.zero = true;
         sys.test_asm(
             "
-                ld ab, 0x00C0
-                ld sp, 0xBEEF
+                ld ab, 0xA0C0
                 halt",
         );
-        assert_hex!(sys.cpu.regs.get16(AB), 0x00C0, "wrong AB");
-        assert_hex!(sys.cpu.regs.get16(SP), 0xBEEF, "wrong SP");
-        assert_hex!(sys.cpu.pc, 0x0107, "wrong PC");
+        assert_hex!(sys.cpu.regs.get16(AB), 0xA0C0, "wrong AB");
+        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
+        assert_hex!(sys.cpu.pc, 0x0104, "wrong PC");
+        sys.cpu.flags.zero = false;
+        sys.test_asm(
+            "
+                ld sp, 0x0000
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(SP), 0x0000, "wrong SP");
+        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
+        assert_hex!(sys.cpu.pc, 0x0104, "wrong PC");
     }
 
     #[test]
     fn ld_reg_indirect() {
         let mut sys = System::default();
+        sys.cpu.flags.zero = true;
         sys.test_asm(
             "
                 ld a, 0xFF
@@ -1487,14 +1513,27 @@ mod tests {
                 ld c, (sp)
                 halt",
         );
-        sys.debug_print();
         assert_hex!(sys.cpu.regs.get(B), 0xFF, "wrong B");
         assert_hex!(sys.cpu.regs.get(C), 0xFF, "wrong C");
+        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
+        sys.cpu.flags.zero = false;
+        sys.test_asm(
+            "
+                ld c, 0xFF
+                ld a, 0x01
+                ld b, 0x00
+                ld 0x0100, b
+                ld c, (ab)
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(C), 0x00, "wrong C");
+        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
     }
 
     #[test]
     fn ld_reg_reg() {
         let mut sys = System::default();
+        sys.cpu.flags.zero = true;
         sys.test_asm(
             "
                 ld a, 0xFF
@@ -1503,10 +1542,19 @@ mod tests {
                 ld e, c
                 halt",
         );
-        sys.debug_print();
+        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
         assert_hex!(sys.cpu.regs.get(B), 0xFF, "wrong B");
         assert_hex!(sys.cpu.regs.get16(CD), 0xFFFF, "wrong CD");
         assert_hex!(sys.cpu.regs.get(E), 0xFF, "wrong E");
+        sys.cpu.flags.zero = false;
+        sys.cpu.regs.set(B, 0x00);
+        sys.test_asm(
+            "
+                ld a, b
+                halt",
+        );
+        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
+        assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
     }
 
     #[test]
