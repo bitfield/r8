@@ -136,6 +136,11 @@ impl Device for Cpu {
                 self.op_hi = bus.data;
                 Execute
             }
+            ReadPS => {
+                let value = bus.data;
+                self.flags = Flags::from(value);
+                FetchOpcode
+            }
             ReadResetLo => {
                 self.op_lo = bus.data;
                 bus.read_mem(VEC_RESET.wrapping_add(1));
@@ -174,6 +179,7 @@ impl Device for Cpu {
             WaitDec(addr) => ReadDec(addr),
             WaitInc(addr) => ReadInc(addr),
             WaitLoad(reg) => ReadLoad(reg),
+            WaitLoadPS => ReadPS,
             WaitOp => ReadOp,
             WaitOpLo => ReadOpLo,
             WaitOpHi => ReadOpHi,
@@ -325,6 +331,7 @@ impl Cpu {
             LdRegReg => self.ld_reg_reg(bus),
             Lsr(reg) => self.lsr(reg, self.op_lo),
             Pop(reg) => self.pop(reg, bus),
+            PopPS => self.pop_ps(bus),
             Push(reg) => self.push(reg, bus),
             PushPS => self.push_ps(bus),
             Ret => self.ret(bus),
@@ -442,6 +449,12 @@ impl Cpu {
             self.op_hi = 0;
             self.state = WaitLoad(reg);
         }
+    }
+
+    /// Executes a `pop ps` instruction.
+    pub fn pop_ps(&mut self, bus: &mut Bus) {
+        self.stack_pop(bus);
+        self.state = WaitLoadPS;
     }
 
     /// Executes a `push R` instruction.
@@ -573,6 +586,8 @@ pub enum State {
     ReadOpHi,
     /// Reads the first of two operands from the bus.
     ReadOpLo,
+    /// Reads the new contents of the PS register from the bus.
+    ReadPS,
     /// Reads the low byte of the reset vector from the bus.
     ReadResetLo,
     /// Reads the high byte of the return address for a `ret` instruction.
@@ -594,6 +609,8 @@ pub enum State {
     WaitInc(u16),
     /// Waits for a byte from memory to load a register.
     WaitLoad(Reg),
+    /// Waits for a byte from the stack to load PS.
+    WaitLoadPS,
     /// Waits for a single operand read from memory.
     WaitOp,
     /// Waits for the second of two operands from memory.
@@ -638,6 +655,7 @@ impl Display for State {
                 ReadOp => "RDOP",
                 ReadOpHi => "ROPH",
                 ReadOpLo => "ROPL",
+                ReadPS => "RDPS",
                 ReadResetLo => "RRSL",
                 ReadRetHi => "RRTH",
                 ReadRetLo => "RRTL",
@@ -651,6 +669,7 @@ impl Display for State {
                 WaitOpHi => "WOPH",
                 WaitOpLo => "WOPL",
                 WaitOpcode => "WOPC",
+                WaitLoadPS => "WTPS",
                 WaitPush(_) => "WPSH",
                 WaitAddrHi => "WTAH",
                 WaitResetLo => "WRSL",
@@ -1620,6 +1639,41 @@ mod tests {
         assert_hex!(sys.cpu.regs.get16(SP), 0xBFFF, "wrong SP");
         assert_hex!(sys.cpu.regs.get16(GH), 0x0000, "wrong GH");
         assert_eq!(sys.cpu.flags.zero, true, "zero not set");
+    }
+
+    #[test]
+    fn pop_ps() {
+        let mut sys = System::default();
+        sys.mem.load(0xBFFD, &[0x03, 0x02, 0x01]).unwrap();
+        sys.cpu.flags.zero = false;
+        sys.cpu.flags.carry = false;
+        sys.test_asm(
+            "
+                ld sp, 0xBFFC
+                pop ps
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(SP), 0xBFFD, "wrong SP");
+        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
+        assert_eq!(sys.cpu.flags.carry, true, "carry not set");
+        sys.cpu.flags.zero = false;
+        sys.test_asm(
+            "
+                pop ps
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(SP), 0xBFFE, "wrong SP");
+        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
+        assert_eq!(sys.cpu.flags.carry, false, "carry not cleared");
+        sys.cpu.flags.zero = true;
+        sys.test_asm(
+            "
+                pop ps
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(SP), 0xBFFF, "wrong SP");
+        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
+        assert_eq!(sys.cpu.flags.carry, true, "carry not set");
     }
 
     #[test]

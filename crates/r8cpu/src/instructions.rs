@@ -55,6 +55,8 @@ pub enum InstructionKind {
     Nop,
     /// Pop a register value from the stack.
     Pop(Reg),
+    /// Pop the status register from the stack.
+    PopPS,
     /// Push a register value to the stack.
     Push(Reg),
     /// Push the status register to the stack.
@@ -107,6 +109,7 @@ impl Display for InstructionKind {
                 Lsr(reg) => format!("lsr {reg}, S"),
                 Nop => "nop".to_owned(),
                 Pop(reg) => format!("pop {reg}"),
+                PopPS => "pop ps".to_owned(),
                 Push(reg) => format!("push {reg}"),
                 PushPS => "push ps".to_owned(),
                 Ret => "ret".to_owned(),
@@ -155,6 +158,7 @@ impl TryFrom<u8> for InstructionKind {
             0xD0..=0xDB => Push(reg?),
             0xDC => PushPS,
             0xE0..=0xEB => Pop(reg?),
+            0xEC => PopPS,
             0xF0 => BranchAlways,
             0xF1 => BranchEq,
             0xF2 => BranchNe,
@@ -195,6 +199,7 @@ impl From<InstructionKind> for u8 {
             Lsr(reg) => 0xA8 | u8::from(reg),
             Nop => 0x01,
             Pop(reg) => 0xE0 | u8::from(reg),
+            PopPS => 0xEC,
             Push(reg) => 0xD0 | u8::from(reg),
             PushPS => 0xDC,
             Ret => 0x08,
@@ -214,9 +219,8 @@ impl InstructionKind {
     pub fn operands(&self) -> Operands {
         use Operands::*;
         match *self {
-            Clc | Dec(_) | Halt | Inc(_) | Nop | Push(_) | PushPS | Pop(_) | Ret | Rti | Sec => {
-                Zero
-            }
+            Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
+            | Sec => Zero,
             Add(_) | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchNe
             | DecIndirect | IncIndirect | LdRegIndirect | LdRegReg | Lsr(_) | StoreRegIndirect
             | Sub(_) | Trap => One,

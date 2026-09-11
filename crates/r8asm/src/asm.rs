@@ -519,9 +519,11 @@ impl Assembler {
     ///
     /// * Invalid register name.
     pub fn gen_pop(&mut self) -> Result<()> {
-        let reg = self.expect_reg()?;
-        self.emit_byte(u8::from(Pop(reg)))?;
-        Ok(())
+        match self.next_token()? {
+            Identifier(id) if id == "ps" => self.emit_byte(u8::from(PopPS)),
+            Register(reg) => self.emit_byte(u8::from(Pop(reg))),
+            other => bail!("expected register name, got {other}"),
+        }
     }
 
     /// Generates a `push R` instruction.
@@ -732,6 +734,7 @@ impl Iterator for Disassembler<'_> {
                 Lsr(reg) => format!("lsr {reg}, {}", self.format_byte()),
                 Nop => "nop".into(),
                 Pop(reg) => format!("pop {reg}"),
+                PopPS => "pop ps".into(),
                 Push(reg) => format!("push {reg}"),
                 PushPS => "push ps".into(),
                 Ret => "ret".into(),
@@ -1458,6 +1461,7 @@ mod tests {
             ("lsr a, 0x04", &[u8::from(Lsr(A)), 0x04]),
             ("nop", &[u8::from(Nop)]),
             ("pop e", &[u8::from(Pop(E))]),
+            ("pop ps", &[u8::from(PopPS)]),
             ("push c", &[u8::from(Push(C))]),
             ("push ps", &[u8::from(PushPS)]),
             ("ret", &[u8::from(Ret)]),
@@ -1543,7 +1547,9 @@ mod tests {
             "lsr ab, 0x02",
             "nop\norg 0x0000",
             "org 0xFFFF\nld a, 0x01",
+            "pop",
             "pop 0x01",
+            "pop ps LABEL",
             "push",
             "push ps, 0x01",
             "ret cd",

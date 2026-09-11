@@ -7,6 +7,15 @@ pub struct Flags {
     pub zero: bool,
 }
 
+impl From<u8> for Flags {
+    fn from(value: u8) -> Self {
+        Self {
+            carry: value & 0x01 != 0,
+            zero: value & 0x02 != 0,
+        }
+    }
+}
+
 impl From<Flags> for u8 {
     fn from(flags: Flags) -> Self {
         let mut value = 0x00;
