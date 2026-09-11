@@ -112,9 +112,13 @@ impl Device for Cpu {
             ReadLoad(reg) => {
                 self.op_lo = bus.data;
                 if reg.is16() {
-                    self.regs.set16(reg, self.op());
+                    let value = self.op();
+                    self.regs.set16(reg, value);
+                    self.flags.update16(value);
                 } else {
-                    self.regs.set(reg, self.op_lo);
+                    let value = self.op_lo;
+                    self.regs.set(reg, value);
+                    self.flags.update(value);
                 }
                 FetchOpcode
             }
@@ -419,6 +423,7 @@ impl Cpu {
         let last_bit = value & 1;
         value = value.unbounded_shr(1);
         self.regs.set(reg, value);
+        self.flags.update(value);
         self.flags.carry = last_bit == 1;
     }
 
@@ -1568,6 +1573,12 @@ mod tests {
                 "{name}: carry not {}",
                 if want_carry { "set" } else { "cleared" }
             );
+            assert_eq!(
+                sys.cpu.flags.zero,
+                want_a == 0,
+                "{name}: zero not {}",
+                if want_a == 0 { "set" } else { "cleared" }
+            );
         }
     }
 
@@ -1590,12 +1601,25 @@ mod tests {
             "
                 ld sp, 0xBFFC
                 pop gh
+                ld b, 0x00
                 pop b
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(SP), 0xBFFF, "wrong SP");
         assert_hex!(sys.cpu.regs.get16(GH), 0x0102, "wrong GH");
         assert_hex!(sys.cpu.regs.get(B), 0x03, "wrong B");
+        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
+        sys.mem.load(0xBFFE, &[0x00, 0x00]).unwrap();
+        sys.test_asm(
+            "
+                ld sp, 0xBFFD
+                ld gh, 0x0001
+                pop gh
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(SP), 0xBFFF, "wrong SP");
+        assert_hex!(sys.cpu.regs.get16(GH), 0x0000, "wrong GH");
+        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
     }
 
     #[test]
@@ -1723,18 +1747,18 @@ mod tests {
     fn sub() {
         use InstructionKind::Sub;
         let mut sys = System::default();
-        let cases: &[(&str, u8, bool, u8, u8, bool, bool)] = &[
-            ("!borrow in, zero out", 0x02, false, 0x01, 0x00, true, true),
-            ("borrow in, zero out", 0xFF, true, 0xFF, 0x00, true, true),
-            ("carry clears", 0x01, true, 0x02, 0xFF, false, false),
-            ("carry affects result", 0x7F, false, 0x00, 0x7E, true, false),
-            ("high bit, no borrow", 0x81, true, 0x01, 0x80, true, false),
-            ("two high bits", 0x80, true, 0x80, 0x00, true, true),
-            ("ordinary subtract", 0x46, true, 0x12, 0x34, true, false),
-            ("zero sets zero", 0xFF, true, 0xFF, 0x00, true, true),
-            ("nonzero clears zero", 0x03, false, 0x01, 0x01, true, false),
+        let cases: &[(&str, u8, bool, u8, u8, bool)] = &[
+            ("!borrow in, zero out", 0x02, false, 0x01, 0x00, true),
+            ("borrow in, zero out", 0xFF, true, 0xFF, 0x00, true),
+            ("carry clears", 0x01, true, 0x02, 0xFF, false),
+            ("carry affects result", 0x7F, false, 0x00, 0x7E, true),
+            ("high bit, no borrow", 0x81, true, 0x01, 0x80, true),
+            ("two high bits", 0x80, true, 0x80, 0x00, true),
+            ("ordinary subtract", 0x46, true, 0x12, 0x34, true),
+            ("zero sets zero", 0xFF, true, 0xFF, 0x00, true),
+            ("nonzero clears zero", 0x03, false, 0x01, 0x01, true),
         ];
-        for &(name, start_a, start_carry, subtrahend, want_a, want_carry, want_zero) in cases {
+        for &(name, start_a, start_carry, subtrahend, want_a, want_carry) in cases {
             sys.cpu.flags.carry = start_carry;
             sys.cpu.flags.zero = true;
             sys.cpu.regs.set(A, start_a);
@@ -1748,9 +1772,9 @@ mod tests {
             );
             assert_eq!(
                 sys.cpu.flags.zero,
-                want_zero,
+                want_a == 0,
                 "{name}: zero not {}",
-                if want_zero { "set" } else { "cleared" }
+                if want_a == 0 { "set" } else { "cleared" }
             );
         }
     }
