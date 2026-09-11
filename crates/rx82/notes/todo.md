@@ -26,4 +26,4 @@ Other:
 [ ] Disassembler: SkoolKit-style HTML cross-linked listings
 [ ] System: emulated serial device
 [ ] ROM: write character to serial
-[ ] CPU: generate state transition diagram
+[X] CPU: generate state transition list

@@ -54,7 +54,6 @@ impl Default for Cpu {
 
 impl Device for Cpu {
     /// Transitions to the next state.
-    #[expect(clippy::too_many_lines, reason = "it's just long")]
     fn tick(&mut self, bus: &mut Bus) {
         #[cfg(feature = "states")]
         let prev_state = self.state;
@@ -252,31 +251,31 @@ impl Cpu {
     }
 
     /// Compares the value in register `reg` with the operand, updating flags.
-    pub fn cmp(&mut self, reg: Reg, rhs: u8) {
-        let lhs = self.regs.get(reg);
-        self.flags.update(lhs.wrapping_sub(rhs));
-        self.flags.carry = lhs >= rhs;
-    }
-
-    /// Compares the value in register pair `reg` with the operand, updating flags.
-    pub fn cmp16(&mut self, reg: Reg, rhs: u16) {
-        let lhs = self.regs.get16(reg);
-        self.flags.update16(lhs.wrapping_sub(rhs));
-        self.flags.carry = lhs >= rhs;
+    pub fn cmp(&mut self, reg: Reg) {
+        if reg.is16() {
+            let lhs = self.regs.get16(reg);
+            let rhs = self.op();
+            self.flags.update16(lhs.wrapping_sub(rhs));
+            self.flags.carry = lhs >= rhs;
+        } else {
+            let lhs = self.regs.get(reg);
+            let rhs = self.op_lo;
+            self.flags.update(lhs.wrapping_sub(rhs));
+            self.flags.carry = lhs >= rhs;
+        }
     }
 
     /// Decrements the value in register `reg`, updating flags.
     pub fn dec(&mut self, reg: Reg) {
-        let result = self.regs.get(reg).wrapping_sub(1);
-        self.regs.set(reg, result);
-        self.flags.update(result);
-    }
-
-    /// Decrements the value in register pair `reg`, updating flags.
-    pub fn dec16(&mut self, reg: Reg) {
-        let result = self.regs.get16(reg).wrapping_sub(1);
-        self.regs.set16(reg, result);
-        self.flags.update16(result);
+        if reg.is16() {
+            let result = self.regs.get16(reg).wrapping_sub(1);
+            self.regs.set16(reg, result);
+            self.flags.update16(result);
+        } else {
+            let result = self.regs.get(reg).wrapping_sub(1);
+            self.regs.set(reg, result);
+            self.flags.update(result);
+        }
     }
 
     /// Decrements the value at the address in `reg`, updating flags.
@@ -300,7 +299,6 @@ impl Cpu {
     /// Executes the instruction.
     pub fn execute(&mut self, ins: InstructionKind, bus: &mut Bus) {
         use InstructionKind::*;
-
         match ins {
             Add(reg) => self.add(reg, self.op_lo),
             And(reg) => self.and(reg, self.op_lo),
@@ -311,26 +309,16 @@ impl Cpu {
             BranchNe if !self.flags.zero => self.branch(self.op_lo),
             Call => self.call(self.op(), bus),
             Clc => self.flags.carry = false,
-            Cmp(reg) if reg.is16() => self.cmp16(reg, self.op()),
-            Cmp(reg) => self.cmp(reg, self.op_lo),
-            Dec(reg) if reg.is16() => self.dec16(reg),
+            Cmp(reg) => self.cmp(reg),
             Dec(reg) => self.dec(reg),
             DecIndirect => self.dec_indirect(bus),
             DecMem => self.dec_mem(self.op(), bus),
-            Halt => self.halt(),
-            Jmp => self.jmp(self.op()),
-            Inc(reg) if reg.is16() => self.inc16(reg),
+            Halt => self.halt = true,
+            Jmp => self.pc = self.op(),
             Inc(reg) => self.inc(reg),
             IncIndirect => self.inc_indirect(bus),
             IncMem => self.inc_mem(self.op(), bus),
-            LdRegImm(reg) if reg.is16() => {
-                self.regs.set16(reg, self.op());
-                self.flags.update16(self.op());
-            }
-            LdRegImm(reg) => {
-                self.regs.set(reg, self.op_lo);
-                self.flags.update(self.op_lo);
-            }
+            LdRegImm(reg) => self.ld_reg_immediate(reg),
             LdRegIndirect => self.ld_reg_indirect(bus),
             LdRegReg => self.ld_reg_reg(bus),
             Lsr(reg) => self.lsr(reg, self.op_lo),
@@ -355,23 +343,17 @@ impl Cpu {
         self.pc = self.pc.wrapping_add(1);
     }
 
-    /// Halts the CPU.
-    pub fn halt(&mut self) {
-        self.halt = true;
-    }
-
     /// Increments the value in register `reg`, updating flags.
     pub fn inc(&mut self, reg: Reg) {
-        let result = self.regs.get(reg).wrapping_add(1);
-        self.regs.set(reg, result);
-        self.flags.update(result);
-    }
-
-    /// Increments the value in register pair `reg`, updating flags.
-    pub fn inc16(&mut self, reg: Reg) {
-        let result = self.regs.get16(reg).wrapping_add(1);
-        self.regs.set16(reg, result);
-        self.flags.update16(result);
+        if reg.is16() {
+            let result = self.regs.get16(reg).wrapping_add(1);
+            self.regs.set16(reg, result);
+            self.flags.update16(result);
+        } else {
+            let result = self.regs.get(reg).wrapping_add(1);
+            self.regs.set(reg, result);
+            self.flags.update(result);
+        }
     }
 
     /// Increments the value at the address in `reg`, updating flags.
@@ -392,9 +374,15 @@ impl Cpu {
         self.state = WaitInc(addr);
     }
 
-    /// Jumps to address `addr`.
-    pub fn jmp(&mut self, addr: u16) {
-        self.pc = addr;
+    /// Executes a `ld R, N` instruction.
+    pub fn ld_reg_immediate(&mut self, reg: Reg) {
+        if reg.is16() {
+            self.regs.set16(reg, self.op());
+            self.flags.update16(self.op());
+        } else {
+            self.regs.set(reg, self.op_lo);
+            self.flags.update(self.op_lo);
+        }
     }
 
     /// Executes a `ld R, (RR)` instruction.
@@ -543,9 +531,9 @@ impl Cpu {
         let (result1, borrow1) = minuend.overflowing_sub(subtrahend);
         let borrow_in = u8::from(!self.flags.carry);
         let (result2, borrow2) = result1.overflowing_sub(borrow_in);
-        self.flags.carry = !(borrow1 || borrow2);
         self.regs.set(reg, result2);
         self.flags.update(result2);
+        self.flags.carry = !(borrow1 || borrow2);
     }
 
     /// Executes a trap.
@@ -869,38 +857,134 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::arbitrary_source_item_ordering, reason = "logical order")]
     fn add() {
         use InstructionKind::Add;
+        struct Case {
+            name: &'static str,
+            carry_in: bool,
+            input: u8,
+            addend: u8,
+            output: u8,
+            carry_out: bool,
+            zero_out: bool,
+        }
         let mut sys = System::default();
-        let cases: &[(&str, u8, bool, u8, u8, bool, bool)] = &[
-            ("!c in, zero result", 0x01, false, 0xFF, 0x00, true, true),
-            ("c in, zero result", 0x00, true, 0xFF, 0x00, true, true),
-            ("carry clears", 0xFD, true, 0x01, 0xFF, false, false),
-            ("carry affects result", 0x7F, true, 0x00, 0x80, false, false),
-            ("high bit, no carry", 0x80, false, 0x01, 0x81, false, false),
-            ("two high bits", 0x80, false, 0x80, 0x00, true, true),
-            ("ordinary addition", 0x12, false, 0x34, 0x46, false, false),
-            ("carry changes zero", 0xFF, true, 0x00, 0x00, true, true),
-            ("nonzero clears zero", 0x01, false, 0x01, 0x02, false, false),
-            ("zero sets zero", 0x01, false, 0xFF, 0x00, true, true),
+        let cases: &[Case] = &[
+            Case {
+                name: "!c in, zero result",
+                carry_in: false,
+                input: 0x01,
+                addend: 0xFF,
+                output: 0x00,
+                carry_out: true,
+                zero_out: true,
+            },
+            Case {
+                name: "c in, zero result",
+                carry_in: true,
+                input: 0x00,
+                addend: 0xFF,
+                output: 0x00,
+                carry_out: true,
+                zero_out: true,
+            },
+            Case {
+                name: "carry clears",
+                carry_in: true,
+                input: 0xFD,
+                addend: 0x01,
+                output: 0xFF,
+                carry_out: false,
+                zero_out: false,
+            },
+            Case {
+                name: "carry affects result",
+                carry_in: true,
+                input: 0x7F,
+                addend: 0x00,
+                output: 0x80,
+                carry_out: false,
+                zero_out: false,
+            },
+            Case {
+                name: "high bit, no carry",
+                carry_in: false,
+                input: 0x80,
+                addend: 0x01,
+                output: 0x81,
+                carry_out: false,
+                zero_out: false,
+            },
+            Case {
+                name: "two high bits",
+                carry_in: false,
+                input: 0x80,
+                addend: 0x80,
+                output: 0x00,
+                carry_out: true,
+                zero_out: true,
+            },
+            Case {
+                name: "ordinary addition",
+                carry_in: false,
+                input: 0x12,
+                addend: 0x34,
+                output: 0x46,
+                carry_out: false,
+                zero_out: false,
+            },
+            Case {
+                name: "carry changes zero",
+                carry_in: true,
+                input: 0xFF,
+                addend: 0x00,
+                output: 0x00,
+                carry_out: true,
+                zero_out: true,
+            },
+            Case {
+                name: "nonzero clears zero",
+                carry_in: false,
+                input: 0x01,
+                addend: 0x01,
+                output: 0x02,
+                carry_out: false,
+                zero_out: false,
+            },
+            Case {
+                name: "zero sets zero",
+                carry_in: false,
+                input: 0x01,
+                addend: 0xFF,
+                output: 0x00,
+                carry_out: true,
+                zero_out: true,
+            },
         ];
-        for &(name, start_a, start_carry, addend, want_a, want_carry, want_zero) in cases {
-            sys.cpu.flags.carry = start_carry;
+        for case in cases {
+            sys.cpu.flags.carry = case.carry_in;
             sys.cpu.flags.zero = true;
-            sys.cpu.regs.set(A, start_a);
-            sys.test_prog(&[u8::from(Add(A)), addend]);
-            assert_hex!(sys.cpu.regs.get(A), want_a, format!("{name}: wrong A"));
+            sys.cpu.regs.set(A, case.input);
+            sys.test_prog(&[u8::from(Add(A)), case.addend]);
+            assert_hex!(
+                sys.cpu.regs.get(A),
+                case.output,
+                format!("{}: wrong A", case.name)
+            );
             assert_eq!(
                 sys.cpu.flags.carry,
-                want_carry,
-                "{name}: carry not {}",
-                if want_carry { "set" } else { "cleared" }
+                case.carry_out,
+                "{}: carry not {}",
+                case.name,
+                if case.carry_out { "set" } else { "cleared" }
             );
             assert_eq!(
                 sys.cpu.flags.zero,
-                want_zero,
-                "{name}: zero not {}",
-                if want_zero { "set" } else { "cleared" }
+                case.zero_out,
+                "{}: zero not {}",
+                case.name,
+                if case.zero_out { "set" } else { "cleared" }
             );
         }
     }
