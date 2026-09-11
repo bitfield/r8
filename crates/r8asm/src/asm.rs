@@ -489,7 +489,7 @@ impl Assembler {
         self.emit_byte(u8::from(LdRegIndirect))?;
         let source = self.expect_reg16()?;
         self.expect(&ParenClose)?;
-        self.emit_byte(u8::from(RegToReg{source, target}))?;
+        self.emit_byte(u8::from(RegToReg { source, target }))?;
         Ok(())
     }
 
@@ -503,7 +503,7 @@ impl Assembler {
             bail!("expected same size register, got '{source}'")
         }
         self.emit_byte(u8::from(LdRegReg))?;
-        self.emit_byte(u8::from(RegToReg{source, target}))
+        self.emit_byte(u8::from(RegToReg { source, target }))
     }
 
     /// Generates a logical shift right instruction.
@@ -571,7 +571,7 @@ impl Assembler {
         self.expect(&Comma)?;
         let source = self.expect_reg8()?;
         self.emit_byte(u8::from(StoreRegIndirect))?;
-        self.emit_byte(u8::from(RegToReg{source, target}))?;
+        self.emit_byte(u8::from(RegToReg { source, target }))?;
         Ok(())
     }
 
@@ -797,7 +797,7 @@ impl<'code> Disassembler<'code> {
     /// instruction for display.
     fn format_ld_reg_indirect(&mut self) -> String {
         if let Some(&regs) = self.code.next()
-            && let Ok(RegToReg{source, target}) = RegToReg::try_from(regs)
+            && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
             format!("ld {target}, ({source})")
         } else {
@@ -809,7 +809,7 @@ impl<'code> Disassembler<'code> {
     /// instruction for display.
     fn format_ld_reg_reg(&mut self) -> String {
         if let Some(&regs) = self.code.next()
-            && let Ok(RegToReg{source, target}) = RegToReg::try_from(regs)
+            && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
             format!("ld {target}, {source}")
         } else {
@@ -830,7 +830,7 @@ impl<'code> Disassembler<'code> {
     /// instruction for display.
     fn format_store_reg_indirect(&mut self) -> String {
         if let Some(&regs) = self.code.next()
-            && let Ok(RegToReg{source, target}) = RegToReg::try_from(regs)
+            && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
             format!("ld ({target}), {source}")
         } else {

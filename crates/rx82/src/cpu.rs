@@ -1,7 +1,8 @@
 use core::fmt::{Display, Formatter};
 
 use r8cpu::{
-    instructions::{InstructionKind, Operands}, regs::{Reg, RegToReg, Regs},
+    instructions::{InstructionKind, Operands},
+    regs::{Reg, RegToReg, Regs},
 };
 
 use crate::{bus::Bus, system::Device};
@@ -382,7 +383,7 @@ impl Cpu {
 
     /// Executes a load register indirect instruction.
     pub fn ld_reg_indirect(&mut self, bus: &mut Bus) {
-        if let Ok(RegToReg{source, target}) = RegToReg::try_from(self.op_lo) {
+        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             bus.read_mem(self.regs.get16(source));
             self.state = WaitLoad(target);
         } else {
@@ -393,10 +394,10 @@ impl Cpu {
     /// Executes a load register register instruction.
     pub fn ld_reg_reg(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
-            Ok(RegToReg{source, target}) if source.is16() && target.is16() => {
+            Ok(RegToReg { source, target }) if source.is16() && target.is16() => {
                 self.regs.set16(target, self.regs.get16(source));
             }
-            Ok(RegToReg{source, target}) if !source.is16() && !target.is16() => {
+            Ok(RegToReg { source, target }) if !source.is16() && !target.is16() => {
                 self.regs.set(target, self.regs.get(source));
             }
             _ => self.trap(TRAP_ILLEGAL, bus),
@@ -502,7 +503,7 @@ impl Cpu {
     /// Executes a store register indirect instruction.
     pub fn store_reg_indirect(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
-            Ok(RegToReg{source, target}) if !source.is16() && target.is16() => {
+            Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {
                 bus.write_mem(self.regs.get16(target), self.regs.get(source));
             }
             _ => self.trap(TRAP_ILLEGAL, bus),
