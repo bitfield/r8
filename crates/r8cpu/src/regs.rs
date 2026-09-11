@@ -195,31 +195,31 @@ impl Regs {
     }
 
     /// Sets register `reg` to the value `val`.
-    pub fn set(&mut self, reg: Reg, val: u8) {
+    pub fn set(&mut self, reg: Reg, value: u8) {
         use Reg::*;
         match reg {
-            A => self.ra = val,
-            B => self.rb = val,
-            C => self.rc = val,
-            D => self.rd = val,
-            E => self.re = val,
-            F => self.rf = val,
-            G => self.rg = val,
-            H => self.rh = val,
+            A => self.ra = value,
+            B => self.rb = value,
+            C => self.rc = value,
+            D => self.rd = value,
+            E => self.re = value,
+            F => self.rf = value,
+            G => self.rg = value,
+            H => self.rh = value,
             other => unreachable!("set() called with 16-bit register pair '{other}'"),
         }
     }
 
     /// Sets register pair `reg` to the value `val`.
-    pub fn set16(&mut self, reg: Reg, val: u16) {
+    pub fn set16(&mut self, reg: Reg, value: u16) {
         use Reg::*;
-        let [hi, lo] = val.to_be_bytes();
+        let [hi, lo] = value.to_be_bytes();
         match reg {
             AB => [self.ra, self.rb] = [hi, lo],
             CD => [self.rc, self.rd] = [hi, lo],
             EF => [self.re, self.rf] = [hi, lo],
             GH => [self.rg, self.rh] = [hi, lo],
-            SP => self.sp = val,
+            SP => self.sp = value,
             other => unreachable!("set16() called with 8-bit register '{other}'"),
         }
     }

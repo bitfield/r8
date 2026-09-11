@@ -1,6 +1,7 @@
 use core::fmt::{Display, Formatter};
 
 use r8cpu::{
+    flags::Flags,
     instructions::{InstructionKind, Operands},
     regs::{Reg, RegToReg, Regs},
 };
@@ -95,17 +96,17 @@ impl Device for Cpu {
                 }
             }
             ReadDec(addr) => {
-                let mut val = bus.data;
-                val = val.wrapping_sub(1);
-                bus.write_mem(addr, val);
-                self.flags.zero = val == 0;
+                let mut value = bus.data;
+                value = value.wrapping_sub(1);
+                bus.write_mem(addr, value);
+                self.flags.update(value);
                 FetchOpcode
             }
             ReadInc(addr) => {
-                let mut val = bus.data;
-                val = val.wrapping_add(1);
-                bus.write_mem(addr, val);
-                self.flags.zero = val == 0;
+                let mut value = bus.data;
+                value = value.wrapping_add(1);
+                bus.write_mem(addr, value);
+                self.flags.update(value);
                 FetchOpcode
             }
             ReadLoad(reg) => {
@@ -176,8 +177,8 @@ impl Device for Cpu {
             WaitResetLo => ReadResetLo,
             WaitAddrHi => ReadAddrHi,
             WaitStackHi(reg) => ReadStackHi(reg),
-            WaitPush(val) => {
-                self.stack_push(val, bus);
+            WaitPush(value) => {
+                self.stack_push(value, bus);
                 FetchOpcode
             }
             WaitRetHi => ReadRetHi,
@@ -210,7 +211,7 @@ impl Cpu {
         let (result2, carry2) = result1.overflowing_add(carry_in);
         self.flags.carry = carry1 || carry2;
         self.regs.set(reg, result2);
-        self.flags.zero = result2 == 0;
+        self.flags.update(result2);
     }
 
     /// Bitwise AND.
@@ -218,7 +219,7 @@ impl Cpu {
         let value = self.regs.get(reg);
         let result = value & mask;
         self.regs.set(reg, result);
-        self.flags.zero = result == 0;
+        self.flags.update(result);
     }
 
     /// Branches to PC+`dis`.
@@ -239,14 +240,14 @@ impl Cpu {
     /// Compares the value in register `reg` with the operand, updating flags.
     pub fn cmp(&mut self, reg: Reg, rhs: u8) {
         let lhs = self.regs.get(reg);
-        self.flags.zero = lhs == rhs;
+        self.flags.update(lhs.wrapping_sub(rhs));
         self.flags.carry = lhs >= rhs;
     }
 
     /// Compares the value in register pair `reg` with the operand, updating flags.
     pub fn cmp16(&mut self, reg: Reg, rhs: u16) {
         let lhs = self.regs.get16(reg);
-        self.flags.zero = lhs == rhs;
+        self.flags.update16(lhs.wrapping_sub(rhs));
         self.flags.carry = lhs >= rhs;
     }
 
@@ -254,14 +255,14 @@ impl Cpu {
     pub fn dec(&mut self, reg: Reg) {
         let result = self.regs.get(reg).wrapping_sub(1);
         self.regs.set(reg, result);
-        self.flags.zero = result == 0;
+        self.flags.update(result);
     }
 
     /// Decrements the value in register pair `reg`, updating flags.
     pub fn dec16(&mut self, reg: Reg) {
         let result = self.regs.get16(reg).wrapping_sub(1);
         self.regs.set16(reg, result);
-        self.flags.zero = result == 0;
+        self.flags.update16(result);
     }
 
     /// Decrements the value at the address in `reg`, updating flags.
@@ -310,11 +311,11 @@ impl Cpu {
             IncMem => self.inc_mem(self.op(), bus),
             LdRegImm(reg) if reg.is16() => {
                 self.regs.set16(reg, self.op());
-                self.flags.zero = self.op() == 0;
+                self.flags.update16(self.op());
             }
             LdRegImm(reg) => {
                 self.regs.set(reg, self.op_lo);
-                self.flags.zero = self.op_lo == 0;
+                self.flags.update(self.op_lo);
             }
             LdRegIndirect => self.ld_reg_indirect(bus),
             LdRegReg => self.ld_reg_reg(bus),
@@ -348,14 +349,14 @@ impl Cpu {
     pub fn inc(&mut self, reg: Reg) {
         let result = self.regs.get(reg).wrapping_add(1);
         self.regs.set(reg, result);
-        self.flags.zero = result == 0;
+        self.flags.update(result);
     }
 
     /// Increments the value in register pair `reg`, updating flags.
     pub fn inc16(&mut self, reg: Reg) {
         let result = self.regs.get16(reg).wrapping_add(1);
         self.regs.set16(reg, result);
-        self.flags.zero = result == 0;
+        self.flags.update16(result);
     }
 
     /// Increments the value at the address in `reg`, updating flags.
@@ -395,10 +396,14 @@ impl Cpu {
     pub fn ld_reg_reg(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if source.is16() && target.is16() => {
-                self.regs.set16(target, self.regs.get16(source));
+                let value = self.regs.get16(source);
+                self.regs.set16(target, value);
+                self.flags.update16(value);
             }
             Ok(RegToReg { source, target }) if !source.is16() && !target.is16() => {
-                self.regs.set(target, self.regs.get(source));
+                let value = self.regs.get(source);
+                self.regs.set(target, value);
+                self.flags.update(value);
             }
             _ => self.trap(TRAP_ILLEGAL, bus),
         }
@@ -437,20 +442,20 @@ impl Cpu {
     /// Executes a `push` instruction with `reg`.
     pub fn push(&mut self, reg: Reg, bus: &mut Bus) {
         if reg.is16() {
-            let val = self.regs.get16(reg);
-            let [hi, lo] = val.to_be_bytes();
+            let value = self.regs.get16(reg);
+            let [hi, lo] = value.to_be_bytes();
             self.stack_push(lo, bus);
             self.state = WaitPush(hi);
         } else {
-            let val = self.regs.get(reg);
-            self.stack_push(val, bus);
+            let value = self.regs.get(reg);
+            self.stack_push(value, bus);
         }
     }
 
     /// Executes a `push ps` instruction.
     pub fn push_ps(&mut self, bus: &mut Bus) {
-        let val = u8::from(self.flags);
-        self.stack_push(val, bus);
+        let value = u8::from(self.flags);
+        self.stack_push(value, bus);
     }
 
     /// Resets the CPU to its power-on state.
@@ -488,9 +493,9 @@ impl Cpu {
     }
 
     /// Writes `val` to the stack, adjusting SP.
-    pub fn stack_push(&mut self, val: u8, bus: &mut Bus) {
+    pub fn stack_push(&mut self, value: u8, bus: &mut Bus) {
         let mut addr = self.regs.get16(Reg::SP);
-        bus.write_mem(addr, val);
+        bus.write_mem(addr, value);
         addr = addr.wrapping_sub(1);
         self.regs.set16(Reg::SP, addr);
     }
@@ -518,7 +523,7 @@ impl Cpu {
         let (result2, borrow2) = result1.overflowing_sub(borrow_in);
         self.flags.carry = !(borrow1 || borrow2);
         self.regs.set(reg, result2);
-        self.flags.zero = result2 == 0;
+        self.flags.update(result2);
     }
 
     /// Executes a trap.
@@ -536,24 +541,6 @@ impl Cpu {
         let [hi, lo] = ret_addr.to_be_bytes();
         self.stack_push(lo, bus);
         self.state = WaitTrapLo(hi, trap_code);
-    }
-}
-
-/// The state of the CPU's flag bits.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct Flags {
-    /// Indicates carry (from addition) or 'no borrow' (from subtraction or comparison).
-    pub carry: bool,
-    /// Indicates a zero result from the last operation.
-    pub zero: bool,
-}
-
-impl From<Flags> for u8 {
-    fn from(flags: Flags) -> Self {
-        let mut value = 0x00;
-        value |= u8::from(flags.carry);
-        value |= u8::from(flags.zero).strict_shl(1);
-        value
     }
 }
 
@@ -1553,7 +1540,7 @@ mod tests {
                 ld a, b
                 halt",
         );
-        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
+        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
         assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
     }
 
@@ -1714,8 +1701,8 @@ mod tests {
                 ld 0xBEEF, a
                 halt",
         );
-        let val = sys.mem.get(0xBEEF);
-        assert_hex!(val, 0xFF, "wrong mem value");
+        let value = sys.mem.get(0xBEEF);
+        assert_hex!(value, 0xFF, "wrong mem value");
     }
 
     #[test]
@@ -1728,8 +1715,8 @@ mod tests {
                 ld (ef), a
                 halt",
         );
-        let val = sys.mem.get(0xBABE);
-        assert_hex!(val, 0xFF, "wrong mem value");
+        let value = sys.mem.get(0xBABE);
+        assert_hex!(value, 0xFF, "wrong mem value");
     }
 
     #[test]

@@ -953,11 +953,11 @@ impl<'src> Tokenizer<'src> {
             iter::from_fn(|| self.chars.next_if(char::is_ascii_hexdigit)).collect();
         match literal.len() {
             2 => match u8::from_str_radix(&literal, 16) {
-                Ok(val) => ByteLiteral(val),
+                Ok(value) => ByteLiteral(value),
                 Err(_) => Illegal(literal),
             },
             4 => match u16::from_str_radix(&literal, 16) {
-                Ok(val) => WordLiteral(val),
+                Ok(value) => WordLiteral(value),
                 Err(_) => Illegal(literal),
             },
             _ => Illegal(literal),

@@ -79,10 +79,10 @@ impl Memory {
     /// Sets the byte at address `addr` to `val`.
     ///
     /// If `addr` is out of range, this has no effect.
-    pub fn set(&mut self, addr: u16, val: u8) {
+    pub fn set(&mut self, addr: u16, value: u8) {
         let phys_addr = addr.saturating_sub(self.start);
         if let Some(loc) = self.data.get_mut(usize::from(phys_addr)) {
-            *loc = val;
+            *loc = value;
         }
     }
 }

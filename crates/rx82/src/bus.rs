@@ -63,10 +63,10 @@ impl Bus {
     }
 
     /// Issues a memory write request for `addr` with `val`.
-    pub fn write_mem(&mut self, addr: u16, val: u8) {
+    pub fn write_mem(&mut self, addr: u16, value: u8) {
         self.pending_write.get_or_insert(vec![
             Bstate::Addr(addr),
-            Bstate::Data(val),
+            Bstate::Data(value),
             Bstate::Mem(true),
             Bstate::Write(true),
         ]);
