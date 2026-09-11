@@ -7,4 +7,5 @@ pub mod doc;
 pub mod memory;
 pub mod monitor;
 pub mod rom;
+pub mod state;
 pub mod system;

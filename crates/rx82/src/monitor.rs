@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use std::io::{Write as _, stdin, stdout};
 
-use crate::{cpu::State::FetchOpcode, system::System};
+use crate::{state::State::FetchOpcode, system::System};
 
 const BANNER: &str = "RMON v1.0 (C) 1977 Solid State Technologies, Inc.";
 

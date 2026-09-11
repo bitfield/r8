@@ -17,6 +17,9 @@ exclude = ["/.github/"]
 github = { repository = "bitfield/r8", workflow = "CI" }
 maintenance = { status = "actively-developed" }
 
+[features]
+states = []
+
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }

@@ -1,0 +1,1 @@
+cargo test --features states -- --show-output | lines | where $it =~ "->" | uniq | save -f notes/state_transitions.txt

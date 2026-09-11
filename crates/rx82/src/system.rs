@@ -5,13 +5,7 @@ use core::fmt::Write as _;
 use r8asm::{assemble, disassemble};
 use r8cpu::regs::Reg::*;
 
-use crate::{
-    bus::Bus,
-    clock::Clock,
-    cpu::{Cpu, State},
-    memory::Memory,
-    rom::Rom,
-};
+use crate::{bus::Bus, clock::Clock, cpu::Cpu, memory::Memory, rom::Rom, state::State};
 
 /// The RX82 ROM code.
 pub const ROM_DATA: &[u8] = include_bytes!("../sys/rx82_rom.bin");
@@ -243,6 +237,7 @@ impl System {
     /// If writing to the strings fails.
     #[expect(clippy::non_ascii_literal, reason = "looks nice")]
     #[expect(clippy::unwrap_used, reason = "panic is okay here")]
+    #[expect(clippy::use_debug, reason = "for debugging")]
     pub fn trace(&self) {
         if self.history.is_empty() {
             return;
@@ -258,7 +253,7 @@ impl System {
             for snapshot in chunk {
                 write!(tick, " {:04X}", snapshot.tick).unwrap();
                 write!(header, "─────").unwrap();
-                write!(state, " {}", snapshot.state).unwrap();
+                write!(state, " {:?}", snapshot.state).unwrap();
                 write!(addr, " {:04X}", snapshot.bus.addr).unwrap();
                 write!(data, " ──{:02X}", snapshot.bus.data).unwrap();
                 write!(
