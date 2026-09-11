@@ -428,11 +428,16 @@ impl Assembler {
     pub fn gen_ld_reg(&mut self, target: Reg) -> Result<()> {
         self.expect(&Comma)?;
         match self.next_token()? {
-            ByteLiteral(byte) => self.gen_ld_reg_imm8(target, byte),
-            Identifier(label) => self.gen_ld_reg_imm_label(target, &label),
-            ParenOpen => self.gen_ld_reg_indirect(target),
-            Register(source) => self.gen_ld_reg_reg(source, target),
-            WordLiteral(word) => self.gen_ld_reg_imm16(target, word),
+            ByteLiteral(byte) if !target.is16() => self.gen_ld_reg_imm8(target, byte),
+            ByteLiteral(byte) => bail!("expected immediate word, got {byte:#04X}"),
+            Identifier(label) if target.is16() => self.gen_ld_reg_imm_label(target, &label),
+            Identifier(label) => bail!("expected immediate byte, got label '{label}'"),
+            ParenOpen if !target.is16() => self.gen_ld_reg_indirect(target),
+            ParenOpen => bail!("expected 8-bit register, got '{target}'"),
+            Register(source) if source.is16() == target.is16() => self.gen_ld_reg_reg(source, target),
+            Register(source) => bail!("expected same size register, got '{source}'"),
+            WordLiteral(word) if target.is16() => self.gen_ld_reg_imm16(target, word),
+            WordLiteral(word) => bail!("expected immediate byte, got {word:#06X}"),
             other => bail!("unexpected token {other}"),
         }
     }
@@ -443,9 +448,6 @@ impl Assembler {
     ///
     /// * Wrong target register width.
     pub fn gen_ld_reg_imm16(&mut self, target: Reg, word: u16) -> Result<()> {
-        if !target.is16() {
-            bail!("expected immediate byte, got {word:#06X}")
-        }
         self.emit_byte(u8::from(LdRegImm(target)))?;
         self.emit_word(word)
     }
@@ -456,9 +458,6 @@ impl Assembler {
     ///
     /// * Wrong target register width.
     pub fn gen_ld_reg_imm8(&mut self, target: Reg, byte: u8) -> Result<()> {
-        if target.is16() {
-            bail!("expected immediate word, got {byte:#04X}")
-        }
         self.emit_byte(u8::from(LdRegImm(target)))?;
         self.emit_byte(byte)
     }
@@ -469,9 +468,6 @@ impl Assembler {
     ///
     /// * If the target is not a 16-bit register.
     pub fn gen_ld_reg_imm_label(&mut self, target: Reg, label: &String) -> Result<()> {
-        if !target.is16() {
-            bail!("expected immediate byte, got label '{label}'")
-        }
         self.emit_byte(u8::from(LdRegImm(target)))?;
         self.emit_word(self.resolve_label(label)?)
     }
@@ -483,9 +479,6 @@ impl Assembler {
     /// * Invalid source or target registers.
     /// * Syntax errors.
     pub fn gen_ld_reg_indirect(&mut self, target: Reg) -> Result<()> {
-        if target.is16() {
-            bail!("expected 8-bit register, got '{target}'")
-        }
         self.emit_byte(u8::from(LdRegIndirect))?;
         let source = self.expect_reg16()?;
         self.expect(&ParenClose)?;
@@ -499,9 +492,6 @@ impl Assembler {
     ///
     /// * Mismatched register widths.
     pub fn gen_ld_reg_reg(&mut self, source: Reg, target: Reg) -> Result<()> {
-        if source.is16() != target.is16() {
-            bail!("expected same size register, got '{source}'")
-        }
         self.emit_byte(u8::from(LdRegReg))?;
         self.emit_byte(u8::from(RegToReg { source, target }))
     }
