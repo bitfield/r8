@@ -229,7 +229,7 @@ impl Assembler {
         Ok(reg)
     }
 
-    /// Generates an add with carry instruction.
+    /// Generates an `add R, N` instruction.
     ///
     /// # Errors
     ///
@@ -247,7 +247,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a bitwise immediate and instruction.
+    /// Generates an `and R, N` instruction.
     ///
     /// # Errors
     ///
@@ -277,7 +277,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a call instruction.
+    /// Generates a `call NN` instruction.
     ///
     /// # Errors
     ///
@@ -293,7 +293,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a compare instruction.
+    /// Generates a `cmp R, N` instruction.
     ///
     /// # Errors
     ///
@@ -390,7 +390,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a jump instruction.
+    /// Generates a `jmp NN` instruction.
     ///
     /// # Errors
     ///
@@ -420,7 +420,7 @@ impl Assembler {
         }
     }
 
-    /// Generates a load register immediate or load register register instruction.
+    /// Generates a `ld R, N`, `ld R, R`, or `ld R, (RR)` instruction.
     ///
     /// # Errors
     ///
@@ -434,7 +434,9 @@ impl Assembler {
             Identifier(label) => bail!("expected immediate byte, got label '{label}'"),
             ParenOpen if !target.is16() => self.gen_ld_reg_indirect(target),
             ParenOpen => bail!("expected 8-bit register, got '{target}'"),
-            Register(source) if source.is16() == target.is16() => self.gen_ld_reg_reg(source, target),
+            Register(source) if source.is16() == target.is16() => {
+                self.gen_ld_reg_reg(source, target)
+            }
             Register(source) => bail!("expected same size register, got '{source}'"),
             WordLiteral(word) if target.is16() => self.gen_ld_reg_imm16(target, word),
             WordLiteral(word) => bail!("expected immediate byte, got {word:#06X}"),
@@ -442,7 +444,7 @@ impl Assembler {
         }
     }
 
-    /// Generates a load register immediate word instruction.
+    /// Generates a `ld RR, NN` instruction.
     ///
     /// # Errors
     ///
@@ -452,7 +454,7 @@ impl Assembler {
         self.emit_word(word)
     }
 
-    /// Generates a load register immediate byte instruction.
+    /// Generates a `ld R, N` instruction.
     ///
     /// # Errors
     ///
@@ -462,17 +464,17 @@ impl Assembler {
         self.emit_byte(byte)
     }
 
-    /// Generates a load register immediate instruction with a label operand.
+    /// Generates a `ld R, LABEL` instruction.
     ///
     /// # Errors
     ///
     /// * If the target is not a 16-bit register.
-    pub fn gen_ld_reg_imm_label(&mut self, target: Reg, label: &String) -> Result<()> {
+    pub fn gen_ld_reg_imm_label(&mut self, target: Reg, label: &str) -> Result<()> {
         self.emit_byte(u8::from(LdRegImm(target)))?;
         self.emit_word(self.resolve_label(label)?)
     }
 
-    /// Generates a load register indirect instruction.
+    /// Generates a `ld R, (RR)` instruction.
     ///
     /// # Errors
     ///
@@ -486,7 +488,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a load register register instruction.
+    /// Generates a `ld R, R` instruction.
     ///
     /// # Errors
     ///
@@ -496,7 +498,7 @@ impl Assembler {
         self.emit_byte(u8::from(RegToReg { source, target }))
     }
 
-    /// Generates a logical shift right instruction.
+    /// Generates an `lsr R, S` instruction.
     ///
     /// # Errors
     ///
@@ -511,7 +513,7 @@ impl Assembler {
         }
     }
 
-    /// Generates a pop instruction.
+    /// Generates a `pop R` instruction.
     ///
     /// # Errors
     ///
@@ -522,7 +524,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a push instruction.
+    /// Generates a `push R` instruction.
     ///
     /// # Errors
     ///
@@ -535,7 +537,7 @@ impl Assembler {
         }
     }
 
-    /// Generates a store register direct instruction.
+    /// Generates a `ld NN, R` instruction.
     ///
     /// # Errors
     ///
@@ -549,7 +551,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a store register indirect instruction.
+    /// Generates a `ld (RR), R` instruction.
     ///
     /// # Errors
     ///
@@ -565,7 +567,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a subtract with carry instruction.
+    /// Generates a `sub R, N` instruction.
     ///
     /// # Errors
     ///
@@ -583,7 +585,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a trap instruction.
+    /// Generates a `trap T` instruction.
     ///
     /// # Errors
     ///
@@ -757,8 +759,7 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Reads an operand specifying the source register and formats the
-    /// instruction for display.
+    /// Dissassembles a `dec (RR)` instruction.
     fn format_dec_indirect(&mut self) -> String {
         if let Some(&encoded_reg) = self.code.next()
             && let Ok(reg) = Reg::try_from(encoded_reg)
@@ -770,8 +771,7 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Reads an operand specifying the source register and formats the
-    /// instruction for display.
+    /// Dissassembles an `inc (RR)` instruction.
     fn format_inc_indirect(&mut self) -> String {
         if let Some(&encoded_reg) = self.code.next()
             && let Ok(reg) = Reg::try_from(encoded_reg)
@@ -783,8 +783,7 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Reads an operand specifying source and target registers and formats the
-    /// instruction for display.
+    /// Dissassembles a `ld R, (RR)` instruction.
     fn format_ld_reg_indirect(&mut self) -> String {
         if let Some(&regs) = self.code.next()
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
@@ -795,8 +794,7 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Reads an operand specifying source and target registers and formats the
-    /// instruction for display.
+    /// Disassembles a `ld R, R` instruction.
     fn format_ld_reg_reg(&mut self) -> String {
         if let Some(&regs) = self.code.next()
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
@@ -816,8 +814,7 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Reads an operand specifying source and target registers and formats the
-    /// instruction for display.
+    /// Disassembles a `ld (RR), R` instruction.
     fn format_store_reg_indirect(&mut self) -> String {
         if let Some(&regs) = self.code.next()
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)

@@ -386,7 +386,7 @@ impl Cpu {
         self.pc = addr;
     }
 
-    /// Executes a load register indirect instruction.
+    /// Executes a `ld R, (RR)` instruction.
     pub fn ld_reg_indirect(&mut self, bus: &mut Bus) {
         if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             bus.read_mem(self.regs.get16(source));
@@ -396,7 +396,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a load register register instruction.
+    /// Executes a `ld R, R` instruction.
     pub fn ld_reg_reg(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if source.is16() && target.is16() => {
@@ -413,7 +413,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a logical shift right instruction.
+    /// Executes an `lsr R, S` instruction.
     pub fn lsr(&mut self, reg: Reg, mut bits: u8) {
         bits = bits.clamp(1, 8);
         let mut value = self
@@ -433,7 +433,7 @@ impl Cpu {
         u16::from_be_bytes([self.op_hi, self.op_lo])
     }
 
-    /// Executes a `pop` instruction with `reg`.
+    /// Executes a `pop R` instruction.
     pub fn pop(&mut self, reg: Reg, bus: &mut Bus) {
         self.stack_pop(bus);
         if reg.is16() {
@@ -444,7 +444,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a `push` instruction with `reg`.
+    /// Executes a `push R` instruction.
     pub fn push(&mut self, reg: Reg, bus: &mut Bus) {
         if reg.is16() {
             let value = self.regs.get16(reg);
@@ -505,12 +505,12 @@ impl Cpu {
         self.regs.set16(Reg::SP, addr);
     }
 
-    /// Executes a store register direct instruction.
+    /// Executes a `ld NN, R` instruction.
     pub fn store_reg_direct(&mut self, reg: Reg, bus: &mut Bus) {
         bus.write_mem(self.op(), self.regs.get(reg));
     }
 
-    /// Executes a store register indirect instruction.
+    /// Executes a `ld (RR), R` instruction.
     pub fn store_reg_indirect(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {
@@ -561,9 +561,9 @@ pub enum State {
     FetchOpcode,
     /// Reads the high byte of the address to jump to.
     ReadAddrHi,
-    /// Reads a byte from memory for a `dec` instruction.
+    /// Reads a byte from memory for a `dec (NN)` instruction.
     ReadDec(u16),
-    /// Reads a byte from memory for an `inc` instruction.
+    /// Reads a byte from memory for an `inc (NN)` instruction.
     ReadInc(u16),
     /// Loads a register from the bus.
     ReadLoad(Reg),
@@ -585,12 +585,12 @@ pub enum State {
     ReadTrapVecLo(u16),
     /// Waits for the high byte of the address to jump to.
     WaitAddrHi,
-    /// Waits for the low byte of the return address to be pushed for a `call`
+    /// Waits for the low byte of the return address to be pushed for a `call NN`
     /// instruction.
     WaitCall(u8, u16),
-    /// Waits for a byte from memory for a `dec` instruction.
+    /// Waits for a byte from memory for a `dec (NN)` instruction.
     WaitDec(u16),
-    /// Waits for a byte from memory for an `inc` instruction.
+    /// Waits for a byte from memory for an `inc (NN)` instruction.
     WaitInc(u16),
     /// Waits for a byte from memory to load a register.
     WaitLoad(Reg),
