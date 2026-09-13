@@ -476,7 +476,7 @@ impl Cpu {
     pub fn reset(&mut self, bus: &mut Bus) {
         *self = Self::default();
         bus.read_mem(VEC_RESET);
-        self.state = WaitResetLo;
+        self.state = WaitTrapVecLo(VEC_RESET.wrapping_add(1));
     }
 
     /// Returns from a subroutine to a return address on the stack.
@@ -840,9 +840,9 @@ mod tests {
         sys.cpu.flags.carry = true;
         sys.cpu.flags.zero = true;
         sys.cpu.reset(&mut sys.bus);
-        assert_eq!(sys.cpu.state, WaitResetLo);
+        assert_eq!(sys.cpu.state, WaitTrapVecLo(VEC_RESET.wrapping_add(1)));
         sys.tick();
-        assert_eq!(sys.cpu.state, ReadResetLo);
+        assert_eq!(sys.cpu.state, ReadTrapVecLo(VEC_RESET.wrapping_add(1)));
         sys.tick();
         assert_eq!(sys.cpu.state, WaitAddrHi);
         sys.tick();
