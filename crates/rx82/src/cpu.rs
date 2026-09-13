@@ -156,15 +156,10 @@ impl Device for Cpu {
                 self.flags = Flags::from(value);
                 FetchOpcode
             }
-            ReadRetHi => {
-                self.op_hi = bus.data;
-                self.pc = self.op();
-                FetchOpcode
-            }
             ReadRetLo => {
                 self.op_lo = bus.data;
                 self.stack_pop(bus);
-                WaitRetHi        
+                WaitVecHi
             }
             ReadStackHi(reg) => {
                 self.op_hi = bus.data;
@@ -198,7 +193,6 @@ impl Device for Cpu {
                 self.stack_push(value, bus);
                 FetchOpcode
             }
-            WaitRetHi => ReadRetHi,
             WaitRetLo => ReadRetLo,
             WaitStackHi(reg) => ReadStackHi(reg),
             WaitVecHi => ReadVecHi,

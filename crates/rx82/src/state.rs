@@ -5,7 +5,7 @@ use r8cpu::regs::Reg;
 /// The state of the CPU on the next tick.
 #[derive(Clone, Copy, Default, PartialEq)]
 pub enum State {
-    /// Reads the opcode from the data bus.
+    /// Decodes the opcode from the data bus.
     Decode,
     /// Executes the current instruction.
     Execute,
@@ -34,15 +34,13 @@ pub enum State {
     ReadOpLo,
     /// Reads the new contents of the PS register from the bus.
     ReadPS,
-    /// Reads the high byte of the return address for a `ret` instruction.
-    ReadRetHi,
-    /// Reads the low byte of the return address for a `ret` instruction.
+    /// Reads the low byte of the return address for a `ret` / `rti` instruction.
     ReadRetLo,
     /// Reads the high byte of a stack value from the bus.
     ReadStackHi(Reg),
-    /// Reads the high byte of the selected vector.
+    /// Reads the high byte of the desired vector.
     ReadVecHi,
-    /// Reads the low byte of the selected vector.
+    /// Reads the low byte of the desired vector.
     ReadVecLo(u16),
     /// Waits for the high byte of the return address to be pushed for a `call NN`
     /// instruction.
@@ -63,9 +61,7 @@ pub enum State {
     WaitOpcode,
     /// Waits for a byte from the stack to load PS.
     WaitPS,
-    /// Waits for the high byte of the return address for a `ret` instruction.
-    WaitRetHi,
-    /// Waits for the low byte of the return address for a `ret` instruction.
+    /// Waits for the low byte of the return address for a `ret` / `rti` instruction.
     WaitRetLo,
     /// Waits for the first of 2 stack pops to a register.
     WaitStackHi(Reg),
@@ -93,7 +89,6 @@ impl Debug for State {
                 ReadOpHi => "ROPH",
                 ReadOpLo => "ROPL",
                 ReadPS => "RDPS",
-                ReadRetHi => "RRTH",
                 ReadRetLo => "RRTL",
                 ReadStackHi(_) => "RSTH",
                 ReadVecLo(_) => "RTVL",
@@ -108,7 +103,6 @@ impl Debug for State {
                 WaitPS => "WTPS",
                 PushData(_) => "WPSH",
                 WaitVecHi => "WTAH",
-                WaitRetHi => "WRTH",
                 WaitRetLo => "WRTL",
                 WaitStackHi(_) => "WSTH",
                 PushTCode(_) => "WTTC",
@@ -138,7 +132,6 @@ impl Display for State {
                 ReadOpHi => "ReadOpHi",
                 ReadOpLo => "ReadOpLo",
                 ReadPS => "ReadPS",
-                ReadRetHi => "ReadRetHi",
                 ReadRetLo => "ReadRetLo",
                 ReadStackHi(_) => "ReadStackHi",
                 ReadVecLo(_) => "ReadTrapVecLo",
@@ -153,7 +146,6 @@ impl Display for State {
                 WaitPS => "WaitLoadPS",
                 PushData(_) => "WaitPush",
                 WaitVecHi => "WaitAddrHi",
-                WaitRetHi => "WaitRetHi",
                 WaitRetLo => "WaitRetLo",
                 WaitStackHi(_) => "WaitStackHi",
                 PushTCode(_) => "WaitTrapCode",
