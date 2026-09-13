@@ -15,9 +15,9 @@ pub enum State {
     /// Waits for a stack push, before pushing another value.
     PushData(u8),
     /// Waits for the high byte of the return address to be pushed following a trap.
-    PushRetHi(u8),
+    PushRetHi(u8, u8),
     /// Waits for the low byte of the return address to be pushed following a trap.
-    PushRetLo(u8, u8),
+    PushRetLo(u8),
     /// Waits for the trap code to be pushed following a trap.
     PushTCode(u8),
     /// Loads a register from the bus.
@@ -44,7 +44,7 @@ pub enum State {
     ReadVecHi,
     /// Reads the low byte of the selected vector.
     ReadVecLo(u16),
-    /// Waits for the low byte of the return address to be pushed for a `call NN`
+    /// Waits for the high byte of the return address to be pushed for a `call NN`
     /// instruction.
     WaitCall(u8, u16),
     /// Waits for a byte from memory to load a register.
@@ -112,8 +112,8 @@ impl Debug for State {
                 WaitRetLo => "WRTL",
                 WaitStackHi(_) => "WSTH",
                 PushTCode(_) => "WTTC",
-                PushRetHi(_) => "WTTH",
-                PushRetLo(_, _) => "WTTL",
+                PushRetLo(_) => "WTTH",
+                PushRetHi(_, _) => "WTTL",
                 WaitVecLo(_) => "WTVL",
             }
         )
@@ -157,8 +157,8 @@ impl Display for State {
                 WaitRetLo => "WaitRetLo",
                 WaitStackHi(_) => "WaitStackHi",
                 PushTCode(_) => "WaitTrapCode",
-                PushRetHi(_) => "WaitTrapHi",
-                PushRetLo(_, _) => "WaitTrapLo",
+                PushRetLo(_) => "WaitTrapHi",
+                PushRetHi(_, _) => "WaitTrapLo",
                 WaitVecLo(_) => "WaitTrapVecLo",
             }
         )

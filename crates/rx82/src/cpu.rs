@@ -96,11 +96,11 @@ impl Device for Cpu {
                     WaitOpcode
                 }
             }
-            PushRetLo(hi, trap_code) => {
+            PushRetHi(hi, trap_code) => {
                 self.stack_push(hi, bus);
-                PushRetHi(trap_code)
+                PushRetLo(trap_code)
             }
-            PushRetHi(trap_code) => {
+            PushRetLo(trap_code) => {
                 self.stack_push(trap_code, bus);
                 PushTCode(trap_code)
             }
@@ -158,13 +158,13 @@ impl Device for Cpu {
             }
             ReadRetHi => {
                 self.op_hi = bus.data;
-                self.stack_pop(bus);
-                WaitRetLo
+                self.pc = self.op();
+                FetchOpcode
             }
             ReadRetLo => {
                 self.op_lo = bus.data;
-                self.pc = self.op();
-                FetchOpcode
+                self.stack_pop(bus);
+                WaitRetHi        
             }
             ReadStackHi(reg) => {
                 self.op_hi = bus.data;
@@ -181,8 +181,8 @@ impl Device for Cpu {
                 bus.read_mem(addr);
                 WaitVecHi
             }
-            WaitCall(hi, subr_addr) => {
-                self.stack_push(hi, bus);
+            WaitCall(lo, subr_addr) => {
+                self.stack_push(lo, bus);
                 self.pc = subr_addr;
                 FetchOpcode
             }
@@ -240,8 +240,8 @@ impl Cpu {
     pub fn call(&mut self, addr: u16, bus: &mut Bus) {
         let ret_addr = self.pc;
         let [hi, lo] = ret_addr.to_be_bytes();
-        self.stack_push(lo, bus);
-        self.state = WaitCall(hi, addr);
+        self.stack_push(hi, bus);
+        self.state = WaitCall(lo, addr);
     }
 
     /// Compares the value in register `reg` with the operand, updating flags.
@@ -476,7 +476,7 @@ impl Cpu {
     /// Returns from a subroutine to a return address on the stack.
     pub fn ret(&mut self, bus: &mut Bus) {
         self.stack_pop(bus);
-        self.state = WaitRetHi;
+        self.state = WaitRetLo;
     }
 
     /// Returns from a trap to a return address on the stack.
@@ -485,7 +485,7 @@ impl Cpu {
         addr = addr.wrapping_add(2); // skip trap code
         bus.read_mem(addr);
         self.regs.set16(Reg::SP, addr);
-        self.state = WaitRetHi;
+        self.state = WaitRetLo;
     }
 
     /// Reads the current top-of-stack value, adjusting SP.
@@ -543,8 +543,8 @@ impl Cpu {
         }
         let ret_addr = self.pc;
         let [hi, lo] = ret_addr.to_be_bytes();
-        self.stack_push(lo, bus);
-        self.state = PushRetLo(hi, trap_code);
+        self.stack_push(hi, bus);
+        self.state = PushRetHi(lo, trap_code);
     }
 }
 
@@ -811,14 +811,14 @@ mod tests {
             );
             assert_eq!(
                 sys.mem.get(0xBFFE),
-                0x01,
-                "{}: wrong return address high byte",
+                u8::try_from(prog.len()).unwrap(),
+                "{}: wrong return address low byte",
                 as_hex(prog)
             );
             assert_eq!(
                 sys.mem.get(0xBFFF),
-                u8::try_from(prog.len()).unwrap(),
-                "{}: wrong return address low byte",
+                0x01,
+                "{}: wrong return address high byte",
                 as_hex(prog)
             );
         }
@@ -1155,8 +1155,8 @@ mod tests {
         );
         assert_hex!(sys.cpu.pc, 0x0107, "wrong PC");
         assert_hex!(sys.cpu.regs.get(A), 0xFF, "wrong A");
-        assert_hex!(sys.peek_mem(0x01FF), 0x01, "wrong high byte on stack");
-        assert_hex!(sys.peek_mem(0x0200), 0x03, "wrong low byte on stack");
+        assert_hex!(sys.peek_mem(0x0200), 0x01, "wrong high byte on stack");
+        assert_hex!(sys.peek_mem(0x01FF), 0x03, "wrong low byte on stack");
         assert_hex!(sys.cpu.regs.get16(SP), 0x01FE, "wrong SP");
     }
 
@@ -1810,8 +1810,8 @@ mod tests {
         );
         assert_hex!(sys.cpu.pc, 0x0113, "wrong PC");
         assert_hex!(sys.cpu.regs.get(A), 0x01, "wrong trap code");
-        assert_hex!(sys.peek_mem(0x01FF), 0x01, "wrong high byte on stack");
-        assert_hex!(sys.peek_mem(0x0200), 0x02, "wrong low byte on stack");
+        assert_hex!(sys.peek_mem(0x0200), 0x01, "wrong high byte on stack");
+        assert_hex!(sys.peek_mem(0x01FF), 0x02, "wrong low byte on stack");
         assert_hex!(sys.cpu.regs.get16(SP), 0x01FD, "wrong SP");
     }
 
