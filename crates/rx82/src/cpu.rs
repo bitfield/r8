@@ -96,6 +96,33 @@ impl Device for Cpu {
                     WaitOpcode
                 }
             }
+            PushRetLo(hi, trap_code) => {
+                self.stack_push(hi, bus);
+                PushRetHi(trap_code)
+            }
+            PushRetHi(trap_code) => {
+                self.stack_push(trap_code, bus);
+                PushTCode(trap_code)
+            }
+            PushTCode(trap_code) => {
+                let mut vec_addr = u16::from(trap_code.strict_mul(2));
+                bus.read_mem(vec_addr);
+                vec_addr = vec_addr.wrapping_add(1);
+                WaitVecLo(vec_addr)
+            }
+            ReadData(reg) => {
+                self.op_lo = bus.data;
+                if reg.is16() {
+                    let value = self.op();
+                    self.regs.set16(reg, value);
+                    self.flags.update16(value);
+                } else {
+                    let value = self.op_lo;
+                    self.regs.set(reg, value);
+                    self.flags.update(value);
+                }
+                FetchOpcode
+            }
             ReadDec(addr) => {
                 let mut value = bus.data;
                 value = value.wrapping_sub(1);
@@ -108,19 +135,6 @@ impl Device for Cpu {
                 value = value.wrapping_add(1);
                 bus.write_mem(addr, value);
                 self.flags.update(value);
-                FetchOpcode
-            }
-            ReadLoad(reg) => {
-                self.op_lo = bus.data;
-                if reg.is16() {
-                    let value = self.op();
-                    self.regs.set16(reg, value);
-                    self.flags.update16(value);
-                } else {
-                    let value = self.op_lo;
-                    self.regs.set(reg, value);
-                    self.flags.update(value);
-                }
                 FetchOpcode
             }
             ReadOp => {
@@ -142,16 +156,6 @@ impl Device for Cpu {
                 self.flags = Flags::from(value);
                 FetchOpcode
             }
-            ReadResetLo => {
-                self.op_lo = bus.data;
-                bus.read_mem(VEC_RESET.wrapping_add(1));
-                WaitAddrHi
-            }
-            ReadAddrHi => {
-                self.op_hi = bus.data;
-                self.pc = self.op();
-                FetchOpcode
-            }
             ReadRetHi => {
                 self.op_hi = bus.data;
                 self.stack_pop(bus);
@@ -165,50 +169,40 @@ impl Device for Cpu {
             ReadStackHi(reg) => {
                 self.op_hi = bus.data;
                 self.stack_pop(bus);
-                WaitLoad(reg)
+                WaitData(reg)
             }
-            ReadTrapVecLo(addr) => {
+            ReadVecHi => {
+                self.op_hi = bus.data;
+                self.pc = self.op();
+                FetchOpcode
+            }
+            ReadVecLo(addr) => {
                 self.op_lo = bus.data;
                 bus.read_mem(addr);
-                WaitAddrHi
+                WaitVecHi
             }
             WaitCall(hi, subr_addr) => {
                 self.stack_push(hi, bus);
                 self.pc = subr_addr;
                 FetchOpcode
             }
+            WaitData(reg) => ReadData(reg),
             WaitDec(addr) => ReadDec(addr),
             WaitInc(addr) => ReadInc(addr),
-            WaitLoad(reg) => ReadLoad(reg),
-            WaitLoadPS => ReadPS,
+            WaitPS => ReadPS,
             WaitOp => ReadOp,
-            WaitOpLo => ReadOpLo,
             WaitOpHi => ReadOpHi,
+            WaitOpLo => ReadOpLo,
             WaitOpcode => Decode,
-            WaitResetLo => ReadResetLo,
-            WaitAddrHi => ReadAddrHi,
-            WaitStackHi(reg) => ReadStackHi(reg),
-            WaitPush(value) => {
+            PushData(value) => {
                 self.stack_push(value, bus);
                 FetchOpcode
             }
             WaitRetHi => ReadRetHi,
             WaitRetLo => ReadRetLo,
-            WaitTrapCode(trap_code) => {
-                let mut vec_addr = u16::from(trap_code.strict_mul(2));
-                bus.read_mem(vec_addr);
-                vec_addr = vec_addr.wrapping_add(1);
-                WaitTrapVecLo(vec_addr)
-            }
-            WaitTrapLo(hi, trap_code) => {
-                self.stack_push(hi, bus);
-                WaitTrapHi(trap_code)
-            }
-            WaitTrapHi(trap_code) => {
-                self.stack_push(trap_code, bus);
-                WaitTrapCode(trap_code)
-            }
-            WaitTrapVecLo(addr) => ReadTrapVecLo(addr),
+            WaitStackHi(reg) => ReadStackHi(reg),
+            WaitVecHi => ReadVecHi,
+            WaitVecLo(addr) => ReadVecLo(addr),
         };
         #[cfg(feature = "states")]
         println!("{} -> {}", prev_state, self.state);
@@ -389,7 +383,7 @@ impl Cpu {
     pub fn ld_reg_indirect(&mut self, bus: &mut Bus) {
         if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             bus.read_mem(self.regs.get16(source));
-            self.state = WaitLoad(target);
+            self.state = WaitData(target);
         } else {
             self.trap(TRAP_ILLEGAL, bus);
         }
@@ -439,14 +433,14 @@ impl Cpu {
             self.state = WaitStackHi(reg);
         } else {
             self.op_hi = 0;
-            self.state = WaitLoad(reg);
+            self.state = WaitData(reg);
         }
     }
 
     /// Executes a `pop ps` instruction.
     pub fn pop_ps(&mut self, bus: &mut Bus) {
         self.stack_pop(bus);
-        self.state = WaitLoadPS;
+        self.state = WaitPS;
     }
 
     /// Executes a `push R` instruction.
@@ -455,7 +449,7 @@ impl Cpu {
             let value = self.regs.get16(reg);
             let [hi, lo] = value.to_be_bytes();
             self.stack_push(lo, bus);
-            self.state = WaitPush(hi);
+            self.state = PushData(hi);
         } else {
             let value = self.regs.get(reg);
             self.stack_push(value, bus);
@@ -471,12 +465,12 @@ impl Cpu {
     /// Resets the CPU to its power-on state.
     ///
     /// The initial state is: all registers and flags zero, not halted, state
-    /// [`WaitResetLo`]. On the next tick, the CPU will request the low byte of the
+    /// [`WaitVecLo`]. On the next tick, the CPU will request the low byte of the
     /// reset vector from the address [`VEC_RESET`].
     pub fn reset(&mut self, bus: &mut Bus) {
         *self = Self::default();
         bus.read_mem(VEC_RESET);
-        self.state = WaitTrapVecLo(VEC_RESET.wrapping_add(1));
+        self.state = WaitVecLo(VEC_RESET.wrapping_add(1));
     }
 
     /// Returns from a subroutine to a return address on the stack.
@@ -550,7 +544,7 @@ impl Cpu {
         let ret_addr = self.pc;
         let [hi, lo] = ret_addr.to_be_bytes();
         self.stack_push(lo, bus);
-        self.state = WaitTrapLo(hi, trap_code);
+        self.state = PushRetLo(hi, trap_code);
     }
 }
 
@@ -688,9 +682,9 @@ mod tests {
         assert_eq!(sys.cpu.state, Execute);
         sys.tick();
         assert_eq!(sys.cpu.pc, 0x0102);
-        assert_eq!(sys.cpu.state, WaitLoad(B));
+        assert_eq!(sys.cpu.state, WaitData(B));
         sys.tick();
-        assert_eq!(sys.cpu.state, ReadLoad(B));
+        assert_eq!(sys.cpu.state, ReadData(B));
         sys.tick();
         assert_eq!(sys.cpu.regs.get(B), 0xFF);
         assert_eq!(sys.cpu.pc, 0x0102);
@@ -756,9 +750,9 @@ mod tests {
         sys.tick();
         assert_eq!(sys.cpu.state, ReadStackHi(CD));
         sys.tick();
-        assert_eq!(sys.cpu.state, WaitLoad(CD));
+        assert_eq!(sys.cpu.state, WaitData(CD));
         sys.tick();
-        assert_eq!(sys.cpu.state, ReadLoad(CD));
+        assert_eq!(sys.cpu.state, ReadData(CD));
         sys.tick();
         assert_eq!(sys.cpu.state, FetchOpcode);
     }
@@ -783,7 +777,7 @@ mod tests {
         sys.tick();
         assert_eq!(sys.cpu.state, Execute);
         sys.tick();
-        assert_eq!(sys.cpu.state, WaitPush(0xCA));
+        assert_eq!(sys.cpu.state, PushData(0xCA));
         sys.tick();
         assert_eq!(sys.cpu.state, FetchOpcode);
     }
@@ -840,13 +834,13 @@ mod tests {
         sys.cpu.flags.carry = true;
         sys.cpu.flags.zero = true;
         sys.cpu.reset(&mut sys.bus);
-        assert_eq!(sys.cpu.state, WaitTrapVecLo(VEC_RESET.wrapping_add(1)));
+        assert_eq!(sys.cpu.state, WaitVecLo(VEC_RESET.wrapping_add(1)));
         sys.tick();
-        assert_eq!(sys.cpu.state, ReadTrapVecLo(VEC_RESET.wrapping_add(1)));
+        assert_eq!(sys.cpu.state, ReadVecLo(VEC_RESET.wrapping_add(1)));
         sys.tick();
-        assert_eq!(sys.cpu.state, WaitAddrHi);
+        assert_eq!(sys.cpu.state, WaitVecHi);
         sys.tick();
-        assert_eq!(sys.cpu.state, ReadAddrHi);
+        assert_eq!(sys.cpu.state, ReadVecHi);
         sys.tick();
         assert_eq!(sys.cpu.state, FetchOpcode);
         assert_eq!(sys.cpu.regs.get16(AB), 0x0000, "AB not reset");

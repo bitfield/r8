@@ -35,8 +35,6 @@ Execute -> WaitTrapLo
 Execute -> WaitInc
 WaitInc -> ReadInc
 ReadInc -> FetchOpcode
-WaitResetLo -> ReadResetLo
-ReadResetLo -> WaitAddrHi
 Execute -> WaitLoadPS
 WaitLoadPS -> ReadPS
 ReadPS -> FetchOpcode
