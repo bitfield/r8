@@ -96,6 +96,10 @@ impl Device for Cpu {
                     WaitOpcode
                 }
             }
+            PushData(value) => {
+                self.stack_push(value, bus);
+                FetchOpcode
+            }
             PushRetHi(hi, trap_code) => {
                 self.stack_push(hi, bus);
                 PushRetLo(trap_code)
@@ -189,10 +193,6 @@ impl Device for Cpu {
             WaitOpHi => ReadOpHi,
             WaitOpLo => ReadOpLo,
             WaitOpcode => Decode,
-            PushData(value) => {
-                self.stack_push(value, bus);
-                FetchOpcode
-            }
             WaitRetLo => ReadRetLo,
             WaitStackHi(reg) => ReadStackHi(reg),
             WaitVecHi => ReadVecHi,
@@ -266,7 +266,7 @@ impl Cpu {
         }
     }
 
-    /// Decrements the value at the address in `reg`, updating flags.
+    /// Decrements the value at the address in `reg`.
     pub fn dec_indirect(&mut self, bus: &mut Bus) {
         if let Ok(reg) = Reg::try_from(self.op_lo)
             && reg.is16()
@@ -278,7 +278,7 @@ impl Cpu {
         }
     }
 
-    /// Decrements the value at the address `addr`, updating flags.
+    /// Decrements the value at the address `addr`.
     pub fn dec_mem(&mut self, addr: u16, bus: &mut Bus) {
         bus.read_mem(addr);
         self.state = WaitDec(addr);
@@ -344,7 +344,7 @@ impl Cpu {
         }
     }
 
-    /// Increments the value at the address in `reg`, updating flags.
+    /// Increments the value at the address in `reg`.
     pub fn inc_indirect(&mut self, bus: &mut Bus) {
         if let Ok(reg) = Reg::try_from(self.op_lo)
             && reg.is16()
@@ -356,7 +356,7 @@ impl Cpu {
         }
     }
 
-    /// Increments the value at the address `addr`, updating flags.
+    /// Increments the value at the address `addr`.
     pub fn inc_mem(&mut self, addr: u16, bus: &mut Bus) {
         bus.read_mem(addr);
         self.state = WaitInc(addr);
