@@ -14,6 +14,8 @@ pub enum State {
     FetchOpcode,
     /// Waits for a stack push, before pushing another value.
     PushData(u8),
+    /// Waits for the `ps` register to be pushed following a trap.
+    PushFlags(u8, u8, u8),
     /// Waits for the high byte of the return address to be pushed following a trap.
     PushRetHi(u8, u8),
     /// Waits for the low byte of the return address to be pushed following a trap.
@@ -32,7 +34,7 @@ pub enum State {
     ReadOpHi,
     /// Reads the first of two operands from the bus.
     ReadOpLo,
-    /// Reads the new contents of the PS register from the bus.
+    /// Reads the new contents of the `ps` register from the bus.
     ReadPS,
     /// Reads the low byte of the return address for a `ret` / `rti` instruction.
     ReadRetLo,
@@ -59,7 +61,7 @@ pub enum State {
     WaitOpLo,
     /// Waits for an opcode fetch to complete.
     WaitOpcode,
-    /// Waits for a byte from the stack to load PS.
+    /// Waits for a byte from the stack to load `ps`.
     WaitPS,
     /// Waits for the low byte of the return address for a `ret` / `rti` instruction.
     WaitRetLo,
@@ -82,6 +84,7 @@ impl Debug for State {
                 Execute => "EXEC",
                 FetchOpcode => "FOPC",
                 PushData(_) => "WPSH",
+                PushFlags(_, _, _) => "WPFL",
                 PushRetHi(_, _) => "WTTL",
                 PushRetLo(_) => "WTTH",
                 PushTCode(_) => "WTTC",
@@ -124,11 +127,12 @@ impl Display for State {
                 Decode => "Decode",
                 Execute => "Execute",
                 FetchOpcode => "FetchOpcode",
-                PushData(_) => "WaitPush",
-                PushRetHi(_, _) => "WaitTrapLo",
-                PushRetLo(_) => "WaitTrapHi",
-                PushTCode(_) => "WaitTrapCode",
-                ReadData(_) => "ReadLoad",
+                PushData(_) => "PushData",
+                PushFlags(_, _, _) => "PushFlags",
+                PushRetHi(_, _) => "PushRetHi",
+                PushRetLo(_) => "PushRetLo",
+                PushTCode(_) => "PushTCode",
+                ReadData(_) => "ReadData",
                 ReadDec(_) => "ReadDec",
                 ReadInc(_) => "ReadInc",
                 ReadOp => "ReadOp",
@@ -137,21 +141,21 @@ impl Display for State {
                 ReadPS => "ReadPS",
                 ReadRetLo => "ReadRetLo",
                 ReadStackHi(_) => "ReadStackHi",
-                ReadVecHi => "ReadAddrHi",
-                ReadVecLo(_) => "ReadTrapVecLo",
+                ReadVecHi => "ReadVecHi",
+                ReadVecLo(_) => "ReadVecLo",
                 WaitCall(_, _) => "WaitCall",
-                WaitData(_) => "WaitLoad",
+                WaitData(_) => "WaitData",
                 WaitDec(_) => "WaitDec",
                 WaitInc(_) => "WaitInc",
                 WaitOp => "WaitOp",
                 WaitOpHi => "WaitOpHi",
                 WaitOpLo => "WaitOpLo",
                 WaitOpcode => "WaitOpcode",
-                WaitPS => "WaitLoadPS",
+                WaitPS => "WaitPS",
                 WaitRetLo => "WaitRetLo",
                 WaitStackHi(_) => "WaitStackHi",
-                WaitVecHi => "WaitAddrHi",
-                WaitVecLo(_) => "WaitTrapVecLo",
+                WaitVecHi => "WaitVecHi",
+                WaitVecLo(_) => "WaitVecLo",
             }
         )
     }

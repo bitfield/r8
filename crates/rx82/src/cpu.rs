@@ -100,6 +100,10 @@ impl Device for Cpu {
                 self.stack_push(value, bus);
                 FetchOpcode
             }
+            PushFlags(hi, lo, trap_code) => {
+                self.stack_push(hi, bus);
+                PushRetHi(lo, trap_code)
+            }
             PushRetHi(hi, trap_code) => {
                 self.stack_push(hi, bus);
                 PushRetLo(trap_code)
@@ -526,8 +530,9 @@ impl Cpu {
 
     /// Executes a trap.
     ///
-    /// The `trap_code` is used to select a vector from the trap table, and the CPU jumps
-    /// to that address after pushing the return address and the trap code to the stack.
+    /// The `trap_code` is used to select a vector from the trap table, and the CPU
+    /// jumps to that address after pushing the flags, return address, and trap code to
+    /// the stack.
     pub fn trap(&mut self, mut trap_code: u8, bus: &mut Bus) {
         if trap_code == 0x20 {
             print!("{}", self.regs.get(Reg::A) as char);
@@ -537,8 +542,8 @@ impl Cpu {
         }
         let ret_addr = self.pc;
         let [hi, lo] = ret_addr.to_be_bytes();
-        self.stack_push(hi, bus);
-        self.state = PushRetHi(lo, trap_code);
+        self.push_ps(bus);
+        self.state = PushFlags(hi, lo, trap_code);
     }
 }
 
@@ -793,26 +798,33 @@ mod tests {
         for prog in cases {
             // initialise stack
             sys.cpu.regs.set16(SP, 0xBFFF);
+            sys.cpu.flags.carry = true;
             // junk to be overwritten by trap stack frame
-            sys.mem.load(0xBFFD, &[0xFF, 0xFF, 0xFF]).unwrap();
+            sys.mem.load(0xBFFC, &[0xFF, 0xFF, 0xFF, 0xFF]).unwrap();
             sys.test_prog(prog);
             // verify trap stack frame
             assert_eq!(
-                sys.mem.get(0xBFFD),
-                TRAP_ILLEGAL,
-                "{}: wrong trap code",
+                sys.mem.get(0xBFFF),
+                0x01,
+                "{}: wrong flags",
                 as_hex(prog)
             );
             assert_eq!(
                 sys.mem.get(0xBFFE),
+                0x01,
+                "{}: wrong return address high byte",
+                as_hex(prog)
+            );
+            assert_eq!(
+                sys.mem.get(0xBFFD),
                 u8::try_from(prog.len()).unwrap(),
                 "{}: wrong return address low byte",
                 as_hex(prog)
             );
             assert_eq!(
-                sys.mem.get(0xBFFF),
-                0x01,
-                "{}: wrong return address high byte",
+                sys.mem.get(0xBFFC),
+                TRAP_ILLEGAL,
+                "{}: wrong trap code",
                 as_hex(prog)
             );
         }
@@ -1790,23 +1802,23 @@ mod tests {
     fn trap() {
         let mut sys = System::default();
         sys.cpu.regs.set16(SP, 0x0200);
-        // trap vector 0x01 points to TRAP_1
-        sys.mem.load(0x0000, &[0x00, 0x00, 0x10, 0x01]).unwrap();
+        // trap vector 0x02 points to TRAP_1
+        sys.mem.load(0x0004, &[0x10, 0x01]).unwrap();
+        sys.cpu.flags.carry = true;
         sys.test_asm(
             "
-                trap 0x01
+                trap 0x02
                 halt
                 org 0x0110
             TRAP_1:
-                pop a
-                push a
                 halt",
         );
-        assert_hex!(sys.cpu.pc, 0x0113, "wrong PC");
-        assert_hex!(sys.cpu.regs.get(A), 0x01, "wrong trap code");
-        assert_hex!(sys.peek_mem(0x0200), 0x01, "wrong high byte on stack");
-        assert_hex!(sys.peek_mem(0x01FF), 0x02, "wrong low byte on stack");
-        assert_hex!(sys.cpu.regs.get16(SP), 0x01FD, "wrong SP");
+        assert_hex!(sys.cpu.pc, 0x0111, "wrong PC");
+        assert_hex!(sys.peek_mem(0x0200), 0x01, "wrong flags on stack");
+        assert_hex!(sys.peek_mem(0x01FF), 0x01, "wrong high byte on stack");
+        assert_hex!(sys.peek_mem(0x01FE), 0x02, "wrong low byte on stack");
+        assert_hex!(sys.peek_mem(0x01FD), 0x02, "wrong trap code");
+        assert_hex!(sys.cpu.regs.get16(SP), 0x01FC, "wrong SP");
     }
 
     #[test]
