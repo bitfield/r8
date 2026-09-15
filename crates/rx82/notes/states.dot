@@ -1,0 +1,86 @@
+strict digraph CPU {
+    // Graph styling
+    bgcolor="transparent";
+    pad=0.2;
+    nodesep=0.1;
+
+    // Global element styling
+    node [
+        fontname="Helvetica"
+        style=filled
+        fillcolor=lightblue
+    ];
+
+    edge [
+        fontname="Courier New"
+        color="#020202"
+        arrowsize=0.8
+        penwidth=1.4
+    ];
+
+    // Special node definitions
+    FetchOpcode;
+    RESET [shape=box fontcolor=white fillcolor=black];
+    Decode;
+    Execute [fillcolor=orange margin=0.3 width=5.0];
+
+    // Edge definitions
+    RESET -> WaitVecLo;
+    Execute -> WaitInc     [label="inc (NN)"];
+    Execute -> WaitDec     [label="dec (NN)"];
+    Execute -> WaitData    [label=" ld R, (RR)\npop R"];
+    Execute -> WaitCall    [label="call NN"];
+    Execute -> WaitPS      [label="pop ps"];
+    Execute -> PushData    [label="push R"];
+    Execute -> WaitRetLo   [label="ret"];
+    Execute -> WaitFlags   [label="rti"];
+    Execute -> WaitStackHi [label="pop RR"];
+    Execute -> PushRetLo   [label="trap T"];
+    Decode -> Execute
+    Decode -> WaitOp
+    Decode -> WaitOpLo
+    Execute -> FetchOpcode
+    Execute -> PushData
+    Execute -> PushRetLo
+    Execute -> WaitCall
+    Execute -> WaitData
+    Execute -> WaitDec
+    Execute -> WaitFlags
+    Execute -> WaitInc
+    Execute -> WaitPS
+    Execute -> WaitRetLo
+    Execute -> WaitStackHi
+    FetchOpcode -> FetchOpcode
+    FetchOpcode -> WaitOpcode
+    PushData -> FetchOpcode
+    PushFlags -> PushTrap
+    PushRetLo -> PushFlags
+    PushTrap -> ReqVecLo
+    ReadData -> FetchOpcode
+    ReadDec -> FetchOpcode
+    ReadFlags -> WaitRetLo
+    ReadInc -> FetchOpcode
+    ReadOp -> Execute
+    ReadOpHi -> Execute
+    ReadOpLo -> WaitOpHi
+    ReadPS -> FetchOpcode
+    ReadRetLo -> WaitVecHi
+    ReadStackHi -> WaitData
+    ReadVecHi -> FetchOpcode
+    ReadVecLo -> WaitVecHi
+    ReqVecLo -> WaitVecLo
+    WaitCall -> FetchOpcode
+    WaitData -> ReadData
+    WaitDec -> ReadDec
+    WaitFlags -> ReadFlags
+    WaitInc -> ReadInc
+    WaitOp -> ReadOp
+    WaitOpHi -> ReadOpHi
+    WaitOpLo -> ReadOpLo
+    WaitOpcode -> Decode
+    WaitPS -> ReadPS
+    WaitRetLo -> ReadRetLo
+    WaitStackHi -> ReadStackHi
+    WaitVecHi -> ReadVecHi
+    WaitVecLo -> ReadVecLo
+}

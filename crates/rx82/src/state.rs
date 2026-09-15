@@ -14,18 +14,18 @@ pub enum State {
     FetchOpcode,
     /// Waits for a stack push, before pushing another value.
     PushData(u8),
-    /// Waits for the `ps` register to be pushed following a trap.
-    PushFlags(u8, u8, u8),
-    /// Waits for the high byte of the return address to be pushed following a trap.
-    PushRetHi(u8, u8),
-    /// Waits for the low byte of the return address to be pushed following a trap.
-    PushRetLo(u8),
-    /// Waits for the trap code to be pushed following a trap.
-    PushTCode(u8),
+    /// Pushes the `ps` register following a trap.
+    PushFlags(u8),
+    /// Pushes the low byte of the return address following a trap.
+    PushRetLo(u8, u8),
+    /// Pushes the trap code following a trap.
+    PushTrap(u8),
     /// Loads a register from the bus.
     ReadData(Reg),
     /// Reads a byte from memory for a `dec (NN)` instruction.
     ReadDec(u16),
+    /// Reads the `ps` register from the stack.
+    ReadFlags,
     /// Reads a byte from memory for an `inc (NN)` instruction.
     ReadInc(u16),
     /// Reads a single operand from the bus.
@@ -44,6 +44,8 @@ pub enum State {
     ReadVecHi,
     /// Reads the low byte of the desired vector.
     ReadVecLo(u16),
+    /// Requests the low byte of a trap vector.
+    ReqVecLo(u16),
     /// Waits for the high byte of the return address to be pushed for a `call NN`
     /// instruction.
     WaitCall(u8, u16),
@@ -51,6 +53,8 @@ pub enum State {
     WaitData(Reg),
     /// Waits for a byte from memory for a `dec (NN)` instruction.
     WaitDec(u16),
+    /// Waits for the `ps` register to be read from the stack.
+    WaitFlags,
     /// Waits for a byte from memory for an `inc (NN)` instruction.
     WaitInc(u16),
     /// Waits for a single operand read from memory.
@@ -84,12 +88,12 @@ impl Debug for State {
                 Execute => "EXEC",
                 FetchOpcode => "FOPC",
                 PushData(_) => "WPSH",
-                PushFlags(_, _, _) => "WPFL",
-                PushRetHi(_, _) => "WTTL",
-                PushRetLo(_) => "WTTH",
-                PushTCode(_) => "WTTC",
+                PushFlags(_) => "PFLG",
+                PushRetLo(_, _) => "PRTL",
+                PushTrap(_) => "PTRP",
                 ReadData(_) => "RDLD",
                 ReadDec(_) => "RDEC",
+                ReadFlags => "RFLG",
                 ReadInc(_) => "RINC",
                 ReadOp => "RDOP",
                 ReadOpHi => "ROPH",
@@ -99,9 +103,11 @@ impl Debug for State {
                 ReadStackHi(_) => "RSTH",
                 ReadVecHi => "RDAH",
                 ReadVecLo(_) => "RTVL",
+                ReqVecLo(_) => "RQVL",
                 WaitCall(_, _) => "WCAL",
                 WaitData(_) => "WTLD",
                 WaitDec(_) => "WDEC",
+                WaitFlags => "WFLG",
                 WaitInc(_) => "WINC",
                 WaitOp => "WTOP",
                 WaitOpHi => "WOPH",
@@ -128,12 +134,12 @@ impl Display for State {
                 Execute => "Execute",
                 FetchOpcode => "FetchOpcode",
                 PushData(_) => "PushData",
-                PushFlags(_, _, _) => "PushFlags",
-                PushRetHi(_, _) => "PushRetHi",
-                PushRetLo(_) => "PushRetLo",
-                PushTCode(_) => "PushTCode",
+                PushFlags(_) => "PushFlags",
+                PushRetLo(_, _) => "PushRetLo",
+                PushTrap(_) => "PushTrap",
                 ReadData(_) => "ReadData",
                 ReadDec(_) => "ReadDec",
+                ReadFlags => "ReadFlags",
                 ReadInc(_) => "ReadInc",
                 ReadOp => "ReadOp",
                 ReadOpHi => "ReadOpHi",
@@ -143,9 +149,11 @@ impl Display for State {
                 ReadStackHi(_) => "ReadStackHi",
                 ReadVecHi => "ReadVecHi",
                 ReadVecLo(_) => "ReadVecLo",
+                ReqVecLo(_) => "ReqVecLo",
                 WaitCall(_, _) => "WaitCall",
                 WaitData(_) => "WaitData",
                 WaitDec(_) => "WaitDec",
+                WaitFlags => "WaitFlags",
                 WaitInc(_) => "WaitInc",
                 WaitOp => "WaitOp",
                 WaitOpHi => "WaitOpHi",

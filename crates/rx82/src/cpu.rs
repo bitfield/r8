@@ -100,23 +100,18 @@ impl Device for Cpu {
                 self.stack_push(value, bus);
                 FetchOpcode
             }
-            PushFlags(hi, lo, trap_code) => {
-                self.stack_push(hi, bus);
-                PushRetHi(lo, trap_code)
+            PushFlags(trap_code) => {
+                self.push_ps(bus);
+                PushTrap(trap_code)
             }
-            PushRetHi(hi, trap_code) => {
-                self.stack_push(hi, bus);
-                PushRetLo(trap_code)
+            PushRetLo(lo, trap_code) => {
+                self.stack_push(lo, bus);
+                PushFlags(trap_code)
             }
-            PushRetLo(trap_code) => {
+            PushTrap(trap_code) => {
                 self.stack_push(trap_code, bus);
-                PushTCode(trap_code)
-            }
-            PushTCode(trap_code) => {
-                let mut vec_addr = u16::from(trap_code.strict_mul(2));
-                bus.read_mem(vec_addr);
-                vec_addr = vec_addr.wrapping_add(1);
-                WaitVecLo(vec_addr)
+                let vec_addr = u16::from(trap_code.strict_mul(2));
+                ReqVecLo(vec_addr)
             }
             ReadData(reg) => {
                 self.op_lo = bus.data;
@@ -137,6 +132,12 @@ impl Device for Cpu {
                 bus.write_mem(addr, value);
                 self.flags.update(value);
                 FetchOpcode
+            }
+            ReadFlags => {
+                let value = bus.data;
+                self.flags = Flags::from(value);
+                self.stack_pop(bus);
+                WaitRetLo
             }
             ReadInc(addr) => {
                 let mut value = bus.data;
@@ -184,6 +185,11 @@ impl Device for Cpu {
                 bus.read_mem(addr);
                 WaitVecHi
             }
+            ReqVecLo(mut addr) => {
+                bus.read_mem(addr);
+                addr = addr.wrapping_add(1);
+                WaitVecLo(addr)
+            }
             WaitCall(lo, subr_addr) => {
                 self.stack_push(lo, bus);
                 self.pc = subr_addr;
@@ -191,6 +197,7 @@ impl Device for Cpu {
             }
             WaitData(reg) => ReadData(reg),
             WaitDec(addr) => ReadDec(addr),
+            WaitFlags => ReadFlags,
             WaitInc(addr) => ReadInc(addr),
             WaitPS => ReadPS,
             WaitOp => ReadOp,
@@ -203,7 +210,7 @@ impl Device for Cpu {
             WaitVecLo(addr) => ReadVecLo(addr),
         };
         #[cfg(feature = "states")]
-        println!("{} -> {}", prev_state, self.state);
+        println!("    {} -> {}", prev_state, self.state);
     }
 }
 
@@ -479,11 +486,9 @@ impl Cpu {
 
     /// Returns from a trap to a return address on the stack.
     pub fn rti(&mut self, bus: &mut Bus) {
-        let mut addr = self.regs.get16(Reg::SP);
-        addr = addr.wrapping_add(2); // skip trap code
-        bus.read_mem(addr);
-        self.regs.set16(Reg::SP, addr);
-        self.state = WaitRetLo;
+        self.inc(Reg::SP); // skip trap code
+        self.stack_pop(bus);
+        self.state = WaitFlags;
     }
 
     /// Reads the current top-of-stack value, adjusting SP.
@@ -542,8 +547,8 @@ impl Cpu {
         }
         let ret_addr = self.pc;
         let [hi, lo] = ret_addr.to_be_bytes();
-        self.push_ps(bus);
-        self.state = PushFlags(hi, lo, trap_code);
+        self.stack_push(hi, bus);
+        self.state = PushRetLo(lo, trap_code);
     }
 }
 
@@ -806,21 +811,16 @@ mod tests {
             assert_eq!(
                 sys.mem.get(0xBFFF),
                 0x01,
-                "{}: wrong flags",
-                as_hex(prog)
-            );
-            assert_eq!(
-                sys.mem.get(0xBFFE),
-                0x01,
                 "{}: wrong return address high byte",
                 as_hex(prog)
             );
             assert_eq!(
-                sys.mem.get(0xBFFD),
+                sys.mem.get(0xBFFE),
                 u8::try_from(prog.len()).unwrap(),
                 "{}: wrong return address low byte",
                 as_hex(prog)
             );
+            assert_eq!(sys.mem.get(0xBFFD), 0x01, "{}: wrong flags", as_hex(prog));
             assert_eq!(
                 sys.mem.get(0xBFFC),
                 TRAP_ILLEGAL,
@@ -1705,23 +1705,21 @@ mod tests {
     #[test]
     fn rti() {
         let mut sys = System::default();
-        sys.cpu.regs.set16(SP, 0x0200);
-        // trap vector 0x01 points to TRAP_1
-        sys.mem.load(0x0000, &[0x00, 0x00, 0x10, 0x01]).unwrap();
+        sys.cpu.regs.set16(SP, 0x01FB);
+        sys.cpu.flags.carry = false;
+        // set up trap stack frame
+        sys.mem.load(0x01FC, &[0x02, 0x01, 0x02, 0x01]).unwrap();
         sys.test_asm(
             "
-                trap 0x01
-                inc a
+                bra TRAP_1
                 halt
                 org 0x0110
             TRAP_1:
-                pop a
-                push a
                 rti",
         );
-        assert_hex!(sys.cpu.pc, 0x0104, "wrong PC");
-        assert_hex!(sys.cpu.regs.get(A), 0x02, "wrong A");
-        assert_hex!(sys.cpu.regs.get16(SP), 0x0200, "wrong SP");
+        assert_hex!(sys.cpu.pc, 0x0103, "wrong PC");
+        assert_eq!(sys.cpu.flags.carry, true, "flags not restored");
+        assert_hex!(sys.cpu.regs.get16(SP), 0x01FF, "wrong SP");
     }
 
     #[test]
@@ -1814,9 +1812,9 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.pc, 0x0111, "wrong PC");
-        assert_hex!(sys.peek_mem(0x0200), 0x01, "wrong flags on stack");
-        assert_hex!(sys.peek_mem(0x01FF), 0x01, "wrong high byte on stack");
-        assert_hex!(sys.peek_mem(0x01FE), 0x02, "wrong low byte on stack");
+        assert_hex!(sys.peek_mem(0x0200), 0x01, "wrong high byte on stack");
+        assert_hex!(sys.peek_mem(0x01FF), 0x02, "wrong low byte on stack");
+        assert_hex!(sys.peek_mem(0x01FE), 0x01, "wrong flags on stack");
         assert_hex!(sys.peek_mem(0x01FD), 0x02, "wrong trap code");
         assert_hex!(sys.cpu.regs.get16(SP), 0x01FC, "wrong SP");
     }
