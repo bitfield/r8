@@ -27,9 +27,9 @@ let header = r#'strict digraph CPU {
 
     // Edge definitions
     RESET -> WaitVecLo;
-    Execute -> WaitInc     [label="inc (NN)"];
-    Execute -> WaitDec     [label="dec (NN)"];
-    Execute -> WaitData    [label=" ld R, (RR)\npop R"];
+    Execute -> WaitInc     [label="inc (NN/RR)"];
+    Execute -> WaitDec     [label="dec (NN/RR)"];
+    Execute -> WaitData    [label=" ld R, (RR[+D])\npop R"];
     Execute -> WaitCall    [label="call NN"];
     Execute -> WaitPS      [label="pop ps"];
     Execute -> PushData    [label="push R"];
