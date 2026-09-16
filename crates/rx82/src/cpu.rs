@@ -394,7 +394,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a `ld R, R` instruction.
+    /// Executes a `ld R1, R2` instruction.
     pub fn ld_reg_reg(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if source.is16() && target.is16() => {
@@ -795,7 +795,7 @@ mod tests {
             &[0x01, 0xFF], // reserved opcode
             &[0x1D, 0xFF], // `ld R, (RR)` with invalid regs
             &[0x28, 0xFF], // `ld (RR), R` with invalid regs
-            &[0x1E, 0x08], // `ld R, R` with mixed 8/16 regs
+            &[0x1E, 0x08], // `ld R1, R2` with mixed 8/16 regs
             &[0x3D, 0xFF], // `inc (RR)` with invalid regs
             &[0x4D, 0xFF], // `dec (RR)` with invalid regs
             &[0xF9, 0x40], // `trap` with invalid code

@@ -420,7 +420,7 @@ impl Assembler {
         }
     }
 
-    /// Generates a `ld R, N`, `ld R, R`, or `ld R, (RR)` instruction.
+    /// Generates a `ld R, N`, `ld R1, R2`, or `ld R, (RR)` instruction.
     ///
     /// # Errors
     ///
@@ -488,7 +488,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a `ld R, R` instruction.
+    /// Generates a `ld R1, R2` instruction.
     ///
     /// # Errors
     ///
@@ -797,7 +797,7 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Disassembles a `ld R, R` instruction.
+    /// Disassembles a `ld R1, R2` instruction.
     fn format_ld_reg_reg(&mut self) -> String {
         if let Some(&regs) = self.code.next()
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)

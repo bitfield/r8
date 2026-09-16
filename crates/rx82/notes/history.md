@@ -27,7 +27,7 @@ For boot ROM we needed:
 [X] CPU: Stack pointer
 [X] `push R` / `pop R`
 [X] System: include ROM binary from file
-[X] Asm/CPU: `ld R, R`
+[X] Asm/CPU: `ld R1, R2`
 [X] CPU: reset vector
 [X] ROM: run RAM test
 [X] Assembler: `org` directive
