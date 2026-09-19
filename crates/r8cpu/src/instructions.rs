@@ -43,6 +43,8 @@ pub enum InstructionKind {
     IncMem,
     /// Far jump.
     Jmp,
+    /// Load a register from an indirect address in another register, indexed by an immediate value.
+    LdIndexed,
     /// Load a register with an immediate operand.
     LdRegImm(Reg),
     /// Load a register from an indirect address in another register.
@@ -103,6 +105,7 @@ impl Display for InstructionKind {
                 IncIndirect => "inc (RR)".to_owned(),
                 IncMem => "inc (NN)".to_owned(),
                 Jmp => "jmp NN".to_owned(),
+                LdIndexed => "ld R, (RR+D)".to_owned(),
                 LdRegImm(reg) => format!("ld {reg}, {}", if reg.is16() { "NN" } else { "N" }),
                 LdRegIndirect => "ld R, (RR)".to_owned(),
                 LdRegReg => "ld R1, R2".to_owned(),
@@ -142,6 +145,7 @@ impl TryFrom<u8> for InstructionKind {
             0x10..=0x1C => LdRegImm(reg?),
             0x1D => LdRegIndirect,
             0x1E => LdRegReg,
+            0x1F => LdIndexed,
             0x20..=0x27 => StoreRegDirect(reg?),
             0x28 => StoreRegIndirect,
             0x30..=0x3C => Inc(reg?),
@@ -193,6 +197,7 @@ impl From<InstructionKind> for u8 {
             Inc(reg) => 0x30 | u8::from(reg),
             IncIndirect => 0x3D,
             IncMem => 0x3E,
+            LdIndexed => 0x1F,
             LdRegImm(reg) => 0x10 | u8::from(reg),
             LdRegIndirect => 0x1D,
             LdRegReg => 0x1E,
@@ -231,7 +236,7 @@ impl InstructionKind {
                     One
                 }
             }
-            Call | DecMem | IncMem | Jmp | StoreRegDirect(_) => Two,
+            Call | DecMem | IncMem | Jmp | LdIndexed | StoreRegDirect(_) => Two,
         }
     }
 }

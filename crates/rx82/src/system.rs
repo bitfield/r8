@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use core::fmt::Write as _;
 
-use r8asm::{assemble, disassemble};
+use r8asm::{assemble_with_debug, disassemble};
 use r8cpu::regs::Reg::*;
 
 use crate::{bus::Bus, clock::Clock, cpu::Cpu, memory::Memory, rom::Rom, state::State};
@@ -192,7 +192,7 @@ impl System {
     /// * On errors from [`assemble_with_debug`] or [`run_program`](Self::run_program).
     #[expect(clippy::unwrap_used, reason = "just for tests")]
     pub fn test_asm(&mut self, source: &str) {
-        self.test_prog(&assemble(source).unwrap());
+        self.test_prog(&assemble_with_debug(source).unwrap());
     }
 
     /// Runs `program` and prints a trace, panicking on error.

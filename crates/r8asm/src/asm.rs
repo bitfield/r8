@@ -90,7 +90,7 @@ impl Assembler {
             "halt" => self.emit_byte(u8::from(Halt)),
             "inc" => self.gen_inc(),
             "jmp" => self.gen_jmp(),
-            "ld" => self.gen_ld(),
+            "ld" => self.gen_ld_or_store(),
             "lsr" => self.gen_lsr(),
             "nop" => self.emit_byte(u8::from(Nop)),
             "org" => self.org(),
@@ -319,10 +319,10 @@ impl Assembler {
     /// * Unexpected token.
     pub fn gen_data(&mut self) -> Result<()> {
         loop {
-            match self.next_token()? {
-                ByteLiteral(byte) => self.emit_byte(byte)?,
-                Comma => {}
-                StringLiteral(string) => {
+            match self.next_token() {
+                Ok(ByteLiteral(byte)) => self.emit_byte(byte)?,
+                Ok(Comma) => {}
+                Ok(StringLiteral(string)) => {
                     for ch in string.chars() {
                         if ch.is_ascii() {
                             self.emit_byte(ch as u8)?;
@@ -331,8 +331,8 @@ impl Assembler {
                         }
                     }
                 }
-                Newline => break,
-                other => bail!("expected immediate byte, got {other}"),
+                Ok(Newline) | Err(_) => break,
+                Ok(other) => bail!("expected immediate byte, got {other}"),
             }
         }
         Ok(())
@@ -406,39 +406,23 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a load (or store) instruction.
+    /// Generates a `ld R, N`, `ld R1, R2`, `ld R, (RR)` or `ld R, (RR+D)` instruction.
     ///
     /// # Errors
     ///
     /// * Syntax errors.
-    pub fn gen_ld(&mut self) -> Result<()> {
-        match self.next_token()? {
-            ParenOpen => self.gen_store_indirect(),
-            Register(target) => self.gen_ld_reg(target),
-            WordLiteral(addr) => self.gen_store_direct(addr),
-            other => bail!("expected register name, got {other}"),
-        }
-    }
-
-    /// Generates a `ld R, N`, `ld R1, R2`, or `ld R, (RR)` instruction.
-    ///
-    /// # Errors
-    ///
-    /// * Syntax errors.
-    pub fn gen_ld_reg(&mut self, target: Reg) -> Result<()> {
+    pub fn gen_ld(&mut self, target: Reg) -> Result<()> {
         self.expect(&Comma)?;
         match self.next_token()? {
-            ByteLiteral(byte) if !target.is16() => self.gen_ld_reg_imm8(target, byte),
+            ByteLiteral(byte) if !target.is16() => self.gen_ld_imm8(target, byte),
             ByteLiteral(byte) => bail!("expected immediate word, got {byte:#04X}"),
-            Identifier(label) if target.is16() => self.gen_ld_reg_imm_label(target, &label),
+            Identifier(label) if target.is16() => self.gen_ld_imm_label(target, &label),
             Identifier(label) => bail!("expected immediate byte, got label '{label}'"),
-            ParenOpen if !target.is16() => self.gen_ld_reg_indirect(target),
+            ParenOpen if !target.is16() => self.gen_ld_indirect(target),
             ParenOpen => bail!("expected 8-bit register, got '{target}'"),
-            Register(source) if source.is16() == target.is16() => {
-                self.gen_ld_reg_reg(source, target)
-            }
+            Register(source) if source.is16() == target.is16() => self.gen_ld_reg(source, target),
             Register(source) => bail!("expected same size register, got '{source}'"),
-            WordLiteral(word) if target.is16() => self.gen_ld_reg_imm16(target, word),
+            WordLiteral(word) if target.is16() => self.gen_ld_imm16(target, word),
             WordLiteral(word) => bail!("expected immediate byte, got {word:#06X}"),
             other => bail!("unexpected token {other}"),
         }
@@ -449,7 +433,7 @@ impl Assembler {
     /// # Errors
     ///
     /// * Wrong target register width.
-    pub fn gen_ld_reg_imm16(&mut self, target: Reg, word: u16) -> Result<()> {
+    pub fn gen_ld_imm16(&mut self, target: Reg, word: u16) -> Result<()> {
         self.emit_byte(u8::from(LdRegImm(target)))?;
         self.emit_word(word)
     }
@@ -459,7 +443,7 @@ impl Assembler {
     /// # Errors
     ///
     /// * Wrong target register width.
-    pub fn gen_ld_reg_imm8(&mut self, target: Reg, byte: u8) -> Result<()> {
+    pub fn gen_ld_imm8(&mut self, target: Reg, byte: u8) -> Result<()> {
         self.emit_byte(u8::from(LdRegImm(target)))?;
         self.emit_byte(byte)
     }
@@ -469,23 +453,49 @@ impl Assembler {
     /// # Errors
     ///
     /// * If the target is not a 16-bit register.
-    pub fn gen_ld_reg_imm_label(&mut self, target: Reg, label: &str) -> Result<()> {
+    pub fn gen_ld_imm_label(&mut self, target: Reg, label: &str) -> Result<()> {
         self.emit_byte(u8::from(LdRegImm(target)))?;
         self.emit_word(self.resolve_label(label)?)
     }
 
-    /// Generates a `ld R, (RR)` instruction.
+    /// Generates a `ld R, (RR)` or `ld R, (RR+D)` instruction.
     ///
     /// # Errors
     ///
     /// * Invalid source or target registers.
     /// * Syntax errors.
-    pub fn gen_ld_reg_indirect(&mut self, target: Reg) -> Result<()> {
-        self.emit_byte(u8::from(LdRegIndirect))?;
+    pub fn gen_ld_indirect(&mut self, target: Reg) -> Result<()> {
         let source = self.expect_reg16()?;
-        self.expect(&ParenClose)?;
-        self.emit_byte(u8::from(RegToReg { source, target }))?;
-        Ok(())
+        match self.next_token()? {
+            ParenClose => {
+                self.emit_byte(u8::from(LdRegIndirect))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))
+            }
+            Plus => {
+                self.emit_byte(u8::from(LdIndexed))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))?;
+                match self.next_token()? {
+                    ByteLiteral(dis) => self.emit_byte(dis)?,
+                    other => bail!("unexpected token {other}"),
+                }
+                self.expect(&ParenClose)
+            }
+            other => bail!("unexpected token {other}"),
+        }
+    }
+
+    /// Generates a load (or store) instruction.
+    ///
+    /// # Errors
+    ///
+    /// * Syntax errors.
+    pub fn gen_ld_or_store(&mut self) -> Result<()> {
+        match self.next_token()? {
+            ParenOpen => self.gen_store_indirect(),
+            Register(target) => self.gen_ld(target),
+            WordLiteral(addr) => self.gen_store_direct(addr),
+            other => bail!("expected register name, got {other}"),
+        }
     }
 
     /// Generates a `ld R1, R2` instruction.
@@ -493,7 +503,7 @@ impl Assembler {
     /// # Errors
     ///
     /// * Mismatched register widths.
-    pub fn gen_ld_reg_reg(&mut self, source: Reg, target: Reg) -> Result<()> {
+    pub fn gen_ld_reg(&mut self, source: Reg, target: Reg) -> Result<()> {
         self.emit_byte(u8::from(LdRegReg))?;
         self.emit_byte(u8::from(RegToReg { source, target }))
     }
@@ -728,9 +738,10 @@ impl Iterator for Disassembler<'_> {
                 IncIndirect => self.format_inc_indirect(),
                 IncMem => format!("inc ({})", self.format_word()),
                 Jmp => format!("jmp {}", self.format_word()),
+                LdIndexed => self.format_ld_indexed(),
                 LdRegImm(reg) => format!("ld {reg}, {}", self.format_op_for_reg(reg)),
-                LdRegIndirect => self.format_ld_reg_indirect(),
-                LdRegReg => self.format_ld_reg_reg(),
+                LdRegIndirect => self.format_ld_indirect(),
+                LdRegReg => self.format_ld_reg(),
                 Lsr(reg) => format!("lsr {reg}, {}", self.format_byte()),
                 Nop => "nop".into(),
                 Pop(reg) => format!("pop {reg}"),
@@ -741,7 +752,7 @@ impl Iterator for Disassembler<'_> {
                 Rti => "rti".into(),
                 Sec => "sec".into(),
                 StoreRegDirect(reg) => format!("ld {}, {reg}", self.format_word()),
-                StoreRegIndirect => self.format_store_reg_indirect(),
+                StoreRegIndirect => self.format_store_indirect(),
                 Sub(reg) => format!("sub {reg}, {}", self.format_byte()),
                 Trap => format!("trap {}", self.format_byte()),
             }
@@ -786,8 +797,19 @@ impl<'code> Disassembler<'code> {
         }
     }
 
+    /// Dissassembles a `ld R, (RR+D)` instruction.
+    fn format_ld_indexed(&mut self) -> String {
+        if let (Some(&regs), Some(dis)) = (self.code.next(), self.code.next())
+            && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
+        {
+            format!("ld {target}, ({source}+{dis:#04X})")
+        } else {
+            "??? (no operand)".to_owned()
+        }
+    }
+
     /// Dissassembles a `ld R, (RR)` instruction.
-    fn format_ld_reg_indirect(&mut self) -> String {
+    fn format_ld_indirect(&mut self) -> String {
         if let Some(&regs) = self.code.next()
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
@@ -798,7 +820,7 @@ impl<'code> Disassembler<'code> {
     }
 
     /// Disassembles a `ld R1, R2` instruction.
-    fn format_ld_reg_reg(&mut self) -> String {
+    fn format_ld_reg(&mut self) -> String {
         if let Some(&regs) = self.code.next()
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
@@ -818,7 +840,7 @@ impl<'code> Disassembler<'code> {
     }
 
     /// Disassembles a `ld (RR), R` instruction.
-    fn format_store_reg_indirect(&mut self) -> String {
+    fn format_store_indirect(&mut self) -> String {
         if let Some(&regs) = self.code.next()
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
@@ -863,6 +885,8 @@ pub enum Token {
     ParenClose,
     /// Opening parenthesis (`(`).
     ParenOpen,
+    /// Plus sign (`+`).
+    Plus,
     /// Register name.
     Register(Reg),
     /// String literal.
@@ -1017,6 +1041,7 @@ impl<'src> Tokenizer<'src> {
                 '"' => self.read_string(),
                 '(' => self.read_token(ParenOpen),
                 ')' => self.read_token(ParenClose),
+                '+' => self.read_token(Plus),
                 ',' => self.read_token(Comma),
                 '0' => self.read_hex_literal(),
                 ';' => self.read_comment(),
@@ -1285,11 +1310,9 @@ mod tests {
     fn data_emits_literal_bytes() {
         let source = "
         nop
-        data 0x01, 0x02, 0x03
-        halt
-";
+        data 0x01, 0x02, 0x03";
         let generated = assemble_with_debug(source).unwrap();
-        let object = &[u8::from(Nop), 0x01, 0x02, 0x03, u8::from(Halt)];
+        let object = &[u8::from(Nop), 0x01, 0x02, 0x03];
         assert_asm!(source, generated, object);
     }
 
@@ -1458,6 +1481,7 @@ mod tests {
             ("ld b, 0xFF", &[u8::from(LdRegImm(B)), 0xFF]),
             ("ld cd, 0xBEEF", &[u8::from(LdRegImm(CD)), 0xEF, 0xBE]),
             ("ld sp, 0x010F", &[u8::from(LdRegImm(SP)), 0x0F, 0x01]),
+            ("ld h, (sp+0x01)", &[u8::from(LdIndexed), 0xC7, 0x01]),
             ("lsr a, 0x04", &[u8::from(Lsr(A)), 0x04]),
             ("nop", &[u8::from(Nop)]),
             ("pop e", &[u8::from(Pop(E))]),
@@ -1506,7 +1530,7 @@ mod tests {
             "cmp a, b, d",
             "data (",
             "data \"©\"",
-            "data",
+            "data bogus",
             "dec (",
             "dec (a)",
             "dec z",

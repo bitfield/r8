@@ -317,9 +317,10 @@ impl Cpu {
             Inc(reg) => self.inc(reg),
             IncIndirect => self.inc_indirect(bus),
             IncMem => self.inc_mem(self.op(), bus),
-            LdRegImm(reg) => self.ld_reg_immediate(reg),
-            LdRegIndirect => self.ld_reg_indirect(bus),
-            LdRegReg => self.ld_reg_reg(bus),
+            LdIndexed => self.ld_indexed(bus),
+            LdRegImm(reg) => self.ld_imm(reg),
+            LdRegIndirect => self.ld_indirect(bus),
+            LdRegReg => self.ld_reg(bus),
             Lsr(reg) => self.lsr(reg, self.op_lo),
             Pop(reg) => self.pop(reg, bus),
             PopPS => self.pop_ps(bus),
@@ -328,8 +329,8 @@ impl Cpu {
             Ret => self.ret(bus),
             Rti => self.rti(bus),
             Sec => self.flags.carry = true,
-            StoreRegDirect(reg) => self.store_reg_direct(reg, bus),
-            StoreRegIndirect => self.store_reg_indirect(bus),
+            StoreRegDirect(reg) => self.store_direct(reg, bus),
+            StoreRegIndirect => self.store_indirect(bus),
             Sub(reg) => self.sub(reg, self.op_lo),
             Trap => self.trap(self.op_lo, bus),
             Nop | BranchCc | BranchCs | BranchEq | BranchNe => {}
@@ -374,7 +375,7 @@ impl Cpu {
     }
 
     /// Executes a `ld R, N` instruction.
-    pub fn ld_reg_immediate(&mut self, reg: Reg) {
+    pub fn ld_imm(&mut self, reg: Reg) {
         if reg.is16() {
             self.regs.set16(reg, self.op());
             self.flags.update16(self.op());
@@ -384,8 +385,19 @@ impl Cpu {
         }
     }
 
+    /// Executes a `ld R, (RR+D)` instruction.
+    pub fn ld_indexed(&mut self, bus: &mut Bus) {
+        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
+            let addr = self.regs.get16(source).wrapping_add(u16::from(self.op_hi));
+            bus.read_mem(addr);
+            self.state = WaitData(target);
+        } else {
+            self.trap(TRAP_ILLEGAL, bus);
+        }
+    }
+
     /// Executes a `ld R, (RR)` instruction.
-    pub fn ld_reg_indirect(&mut self, bus: &mut Bus) {
+    pub fn ld_indirect(&mut self, bus: &mut Bus) {
         if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             bus.read_mem(self.regs.get16(source));
             self.state = WaitData(target);
@@ -395,7 +407,7 @@ impl Cpu {
     }
 
     /// Executes a `ld R1, R2` instruction.
-    pub fn ld_reg_reg(&mut self, bus: &mut Bus) {
+    pub fn ld_reg(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if source.is16() && target.is16() => {
                 let value = self.regs.get16(source);
@@ -508,12 +520,12 @@ impl Cpu {
     }
 
     /// Executes a `ld NN, R` instruction.
-    pub fn store_reg_direct(&mut self, reg: Reg, bus: &mut Bus) {
+    pub fn store_direct(&mut self, reg: Reg, bus: &mut Bus) {
         bus.write_mem(self.op(), self.regs.get(reg));
     }
 
     /// Executes a `ld (RR), R` instruction.
-    pub fn store_reg_indirect(&mut self, bus: &mut Bus) {
+    pub fn store_indirect(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {
                 bus.write_mem(self.regs.get16(target), self.regs.get(source));
@@ -567,7 +579,7 @@ mod tests {
         ( $got:expr, $want:expr, $msg:expr ) => {
             assert_eq!(
                 $got, $want,
-                "{}: want {:#06X}, got {:#06X}",
+                "{}: want {:#04X}, got {:#04X}",
                 $msg, $want, $got,
             );
         };
@@ -1430,7 +1442,7 @@ mod tests {
     }
 
     #[test]
-    fn ld_reg_imm8() {
+    fn ld_imm8() {
         let mut sys = System::default();
         sys.cpu.flags.zero = true;
         sys.test_asm(
@@ -1453,7 +1465,7 @@ mod tests {
     }
 
     #[test]
-    fn ld_reg_imm16() {
+    fn ld_imm16() {
         let mut sys = System::default();
         sys.cpu.flags.zero = true;
         sys.test_asm(
@@ -1476,7 +1488,23 @@ mod tests {
     }
 
     #[test]
-    fn ld_reg_indirect() {
+    fn ld_indexed() {
+        let mut sys = System::default();
+        sys.cpu.flags.zero = true;
+        sys.test_asm(
+            "
+                ld cd, LABEL
+                ld a, (cd+0x02)
+                halt
+            LABEL: data 0x01, 0x02, 0xFF
+            ",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0xFF, "wrong A");
+        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
+    }
+
+    #[test]
+    fn ld_indirect() {
         let mut sys = System::default();
         sys.cpu.flags.zero = true;
         sys.test_asm(
@@ -1507,7 +1535,7 @@ mod tests {
     }
 
     #[test]
-    fn ld_reg_reg() {
+    fn ld_reg() {
         let mut sys = System::default();
         sys.cpu.flags.zero = true;
         sys.test_asm(
@@ -1734,7 +1762,7 @@ mod tests {
     }
 
     #[test]
-    fn store_reg_direct() {
+    fn store_direct() {
         let mut sys = System::default();
         sys.test_asm(
             "
@@ -1747,7 +1775,7 @@ mod tests {
     }
 
     #[test]
-    fn store_reg_indirect() {
+    fn store_indirect() {
         let mut sys = System::default();
         sys.test_asm(
             "
