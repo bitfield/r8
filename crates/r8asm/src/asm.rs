@@ -434,7 +434,7 @@ impl Assembler {
     ///
     /// * Wrong target register width.
     pub fn gen_ld_imm16(&mut self, target: Reg, word: u16) -> Result<()> {
-        self.emit_byte(u8::from(LdRegImm(target)))?;
+        self.emit_byte(u8::from(LdImm(target)))?;
         self.emit_word(word)
     }
 
@@ -444,7 +444,7 @@ impl Assembler {
     ///
     /// * Wrong target register width.
     pub fn gen_ld_imm8(&mut self, target: Reg, byte: u8) -> Result<()> {
-        self.emit_byte(u8::from(LdRegImm(target)))?;
+        self.emit_byte(u8::from(LdImm(target)))?;
         self.emit_byte(byte)
     }
 
@@ -454,7 +454,7 @@ impl Assembler {
     ///
     /// * If the target is not a 16-bit register.
     pub fn gen_ld_imm_label(&mut self, target: Reg, label: &str) -> Result<()> {
-        self.emit_byte(u8::from(LdRegImm(target)))?;
+        self.emit_byte(u8::from(LdImm(target)))?;
         self.emit_word(self.resolve_label(label)?)
     }
 
@@ -468,7 +468,7 @@ impl Assembler {
         let source = self.expect_reg16()?;
         match self.next_token()? {
             ParenClose => {
-                self.emit_byte(u8::from(LdRegIndirect))?;
+                self.emit_byte(u8::from(LdIndirect))?;
                 self.emit_byte(u8::from(RegToReg { source, target }))
             }
             Plus => {
@@ -504,7 +504,7 @@ impl Assembler {
     ///
     /// * Mismatched register widths.
     pub fn gen_ld_reg(&mut self, source: Reg, target: Reg) -> Result<()> {
-        self.emit_byte(u8::from(LdRegReg))?;
+        self.emit_byte(u8::from(LdReg))?;
         self.emit_byte(u8::from(RegToReg { source, target }))
     }
 
@@ -558,12 +558,12 @@ impl Assembler {
     pub fn gen_store_direct(&mut self, addr: u16) -> Result<()> {
         self.expect(&Comma)?;
         let reg = self.expect_reg8()?;
-        self.emit_byte(u8::from(StoreRegDirect(reg)))?;
+        self.emit_byte(u8::from(StoreDirect(reg)))?;
         self.emit_word(addr)?;
         Ok(())
     }
 
-    /// Generates a `ld (RR), R` instruction.
+    /// Generates a `ld (RR), R` or `ld (RR+D), R` instruction.
     ///
     /// # Errors
     ///
@@ -571,11 +571,27 @@ impl Assembler {
     /// * Invalid register name.
     pub fn gen_store_indirect(&mut self) -> Result<()> {
         let target = self.expect_reg16()?;
-        self.expect(&ParenClose)?;
-        self.expect(&Comma)?;
-        let source = self.expect_reg8()?;
-        self.emit_byte(u8::from(StoreRegIndirect))?;
-        self.emit_byte(u8::from(RegToReg { source, target }))?;
+        match self.next_token()? {
+            ParenClose => {
+                self.expect(&Comma)?;
+                let source = self.expect_reg8()?;
+                self.emit_byte(u8::from(StoreIndirect))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))?;
+            }
+            Plus => {
+                let dis = match self.next_token()? {
+                    ByteLiteral(dis) => dis,
+                    other => bail!("unexpected token {other}"),
+                };
+                self.expect(&ParenClose)?;
+                self.expect(&Comma)?;
+                let source = self.expect_reg8()?;
+                self.emit_byte(u8::from(StoreIndexed))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))?;
+                self.emit_byte(dis)?;
+            }
+            other => bail!("unexpected token {other}"),
+        }
         Ok(())
     }
 
@@ -739,9 +755,9 @@ impl Iterator for Disassembler<'_> {
                 IncMem => format!("inc ({})", self.format_word()),
                 Jmp => format!("jmp {}", self.format_word()),
                 LdIndexed => self.format_ld_indexed(),
-                LdRegImm(reg) => format!("ld {reg}, {}", self.format_op_for_reg(reg)),
-                LdRegIndirect => self.format_ld_indirect(),
-                LdRegReg => self.format_ld_reg(),
+                LdImm(reg) => format!("ld {reg}, {}", self.format_op_for_reg(reg)),
+                LdIndirect => self.format_ld_indirect(),
+                LdReg => self.format_ld_reg(),
                 Lsr(reg) => format!("lsr {reg}, {}", self.format_byte()),
                 Nop => "nop".into(),
                 Pop(reg) => format!("pop {reg}"),
@@ -751,8 +767,9 @@ impl Iterator for Disassembler<'_> {
                 Ret => "ret".into(),
                 Rti => "rti".into(),
                 Sec => "sec".into(),
-                StoreRegDirect(reg) => format!("ld {}, {reg}", self.format_word()),
-                StoreRegIndirect => self.format_store_indirect(),
+                StoreDirect(reg) => format!("ld {}, {reg}", self.format_word()),
+                StoreIndexed => self.format_store_indexed(),
+                StoreIndirect => self.format_store_indirect(),
                 Sub(reg) => format!("sub {reg}, {}", self.format_byte()),
                 Trap => format!("trap {}", self.format_byte()),
             }
@@ -836,6 +853,17 @@ impl<'code> Disassembler<'code> {
             self.format_word()
         } else {
             self.format_byte()
+        }
+    }
+
+    /// Disassembles a `ld (RR+D), R` instruction.
+    fn format_store_indexed(&mut self) -> String {
+        if let (Some(&regs), Some(dis)) = (self.code.next(), self.code.next())
+            && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
+        {
+            format!("ld ({target}+{dis:#04X}), {source}")
+        } else {
+            "??? (no operand)".to_owned()
         }
     }
 
@@ -1196,11 +1224,7 @@ mod tests {
             ld cd, LABEL
 ";
         let generated = assemble_with_debug(source).unwrap();
-        assert_asm!(
-            source,
-            generated,
-            &[u8::from(LdRegImm(Reg::CD)), 0x00, 0x01]
-        );
+        assert_asm!(source, generated, &[u8::from(LdImm(Reg::CD)), 0x00, 0x01]);
     }
 
     #[test]
@@ -1230,7 +1254,7 @@ mod tests {
     fn assembler_ignores_comments() {
         let source = "ld a, 0xFF ; loop count";
         let generated = assemble_with_debug(source).unwrap();
-        let object = &[u8::from(LdRegImm(Reg::A)), 0xFF];
+        let object = &[u8::from(LdImm(Reg::A)), 0xFF];
         assert_asm!(source, generated, object);
     }
 
@@ -1240,7 +1264,7 @@ mod tests {
         let source = "include testdata/include.asm\ninc a";
         let generated = assemble_with_debug(source).unwrap();
         let object = &[
-            u8::from(LdRegImm(A)),
+            u8::from(LdImm(A)),
             0x01,
             u8::from(Dec(A)),
             u8::from(Nop),
@@ -1264,9 +1288,9 @@ mod tests {
 ";
         let generated = assemble_with_debug(source).unwrap();
         let object = &[
-            u8::from(LdRegImm(Reg::A)),
+            u8::from(LdImm(Reg::A)),
             0x06,
-            u8::from(LdRegImm(Reg::CD)),
+            u8::from(LdImm(Reg::CD)),
             0xFF,
             0xFF,
             u8::from(Dec(Reg::CD)),
@@ -1388,7 +1412,7 @@ mod tests {
 ";
         let generated = assemble_with_debug(source).unwrap();
         let object = &[
-            u8::from(LdRegImm(Reg::A)),
+            u8::from(LdImm(Reg::A)),
             0xFF,
             u8::from(BranchAlways),
             0x04,
@@ -1473,14 +1497,15 @@ mod tests {
             ("inc a", &[u8::from(Inc(A))]),
             ("inc ef", &[u8::from(Inc(EF))]),
             ("jmp 0x1234", &[u8::from(Jmp), 0x34, 0x12]),
-            ("ld (ef), a", &[u8::from(StoreRegIndirect), 0x0A]),
-            ("ld 0x00AF, h", &[u8::from(StoreRegDirect(H)), 0xAF, 0x00]),
-            ("ld a, b", &[u8::from(LdRegReg), 0x10]),
-            ("ld ab, 0x000F", &[u8::from(LdRegImm(AB)), 0x0F, 0x00]),
-            ("ld b, (cd)", &[u8::from(LdRegIndirect), 0x91]),
-            ("ld b, 0xFF", &[u8::from(LdRegImm(B)), 0xFF]),
-            ("ld cd, 0xBEEF", &[u8::from(LdRegImm(CD)), 0xEF, 0xBE]),
-            ("ld sp, 0x010F", &[u8::from(LdRegImm(SP)), 0x0F, 0x01]),
+            ("ld (ef), a", &[u8::from(StoreIndirect), 0x0A]),
+            ("ld (sp+0x01), b", &[u8::from(StoreIndexed), 0x1C, 0x01]),
+            ("ld 0x00AF, h", &[u8::from(StoreDirect(H)), 0xAF, 0x00]),
+            ("ld a, b", &[u8::from(LdReg), 0x10]),
+            ("ld ab, 0x000F", &[u8::from(LdImm(AB)), 0x0F, 0x00]),
+            ("ld b, (cd)", &[u8::from(LdIndirect), 0x91]),
+            ("ld b, 0xFF", &[u8::from(LdImm(B)), 0xFF]),
+            ("ld cd, 0xBEEF", &[u8::from(LdImm(CD)), 0xEF, 0xBE]),
+            ("ld sp, 0x010F", &[u8::from(LdImm(SP)), 0x0F, 0x01]),
             ("ld h, (sp+0x01)", &[u8::from(LdIndexed), 0xC7, 0x01]),
             ("lsr a, 0x04", &[u8::from(Lsr(A)), 0x04]),
             ("nop", &[u8::from(Nop)]),
@@ -1546,6 +1571,7 @@ mod tests {
             "jmp ab",
             "jmp 0x01",
             "ld (0x0), b",
+            "ld (cd+a), b",
             "ld 0x0000",
             "ld 0x0000, ",
             "ld 0x00AF, ab",

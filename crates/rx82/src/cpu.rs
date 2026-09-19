@@ -318,9 +318,9 @@ impl Cpu {
             IncIndirect => self.inc_indirect(bus),
             IncMem => self.inc_mem(self.op(), bus),
             LdIndexed => self.ld_indexed(bus),
-            LdRegImm(reg) => self.ld_imm(reg),
-            LdRegIndirect => self.ld_indirect(bus),
-            LdRegReg => self.ld_reg(bus),
+            LdImm(reg) => self.ld_imm(reg),
+            LdIndirect => self.ld_indirect(bus),
+            LdReg => self.ld_reg(bus),
             Lsr(reg) => self.lsr(reg, self.op_lo),
             Pop(reg) => self.pop(reg, bus),
             PopPS => self.pop_ps(bus),
@@ -329,8 +329,9 @@ impl Cpu {
             Ret => self.ret(bus),
             Rti => self.rti(bus),
             Sec => self.flags.carry = true,
-            StoreRegDirect(reg) => self.store_direct(reg, bus),
-            StoreRegIndirect => self.store_indirect(bus),
+            StoreDirect(reg) => self.store_direct(reg, bus),
+            StoreIndexed => self.store_indexed(bus),
+            StoreIndirect => self.store_indirect(bus),
             Sub(reg) => self.sub(reg, self.op_lo),
             Trap => self.trap(self.op_lo, bus),
             Nop | BranchCc | BranchCs | BranchEq | BranchNe => {}
@@ -522,6 +523,17 @@ impl Cpu {
     /// Executes a `ld NN, R` instruction.
     pub fn store_direct(&mut self, reg: Reg, bus: &mut Bus) {
         bus.write_mem(self.op(), self.regs.get(reg));
+    }
+
+    /// Executes a `ld (RR+D), R` instruction.
+    pub fn store_indexed(&mut self, bus: &mut Bus) {
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {
+                let addr = self.regs.get16(target).wrapping_add(u16::from(self.op_hi));
+                bus.write_mem(addr, self.regs.get(source));
+            }
+            _ => self.trap(TRAP_ILLEGAL, bus),
+        }
     }
 
     /// Executes a `ld (RR), R` instruction.
@@ -1771,6 +1783,20 @@ mod tests {
                 halt",
         );
         let value = sys.mem.get(0xBEEF);
+        assert_hex!(value, 0xFF, "wrong mem value");
+    }
+
+    #[test]
+    fn store_indexed() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld ef, 0xBAB0
+                ld a, 0xFF
+                ld (ef+0x0E), a
+                halt",
+        );
+        let value = sys.mem.get(0xBABE);
         assert_hex!(value, 0xFF, "wrong mem value");
     }
 

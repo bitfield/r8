@@ -43,14 +43,15 @@ pub enum InstructionKind {
     IncMem,
     /// Far jump.
     Jmp,
-    /// Load a register from an indirect address in another register, indexed by an immediate value.
-    LdIndexed,
     /// Load a register with an immediate operand.
-    LdRegImm(Reg),
+    LdImm(Reg),
+    /// Load a register from an indirect address in another register, indexed by an
+    /// immediate value.
+    LdIndexed,
     /// Load a register from an indirect address in another register.
-    LdRegIndirect,
+    LdIndirect,
     /// Load a register from another register.
-    LdRegReg,
+    LdReg,
     /// Logical shift right.
     Lsr(Reg),
     /// No operation.
@@ -70,9 +71,12 @@ pub enum InstructionKind {
     /// Set carry flag.
     Sec,
     /// Store a register value at an immediate address.
-    StoreRegDirect(Reg),
+    StoreDirect(Reg),
+    /// Store a register at an indirect address in another register, indexed by an
+    /// immediate value.
+    StoreIndexed,
     /// Store a register value at an indirect address in another register.
-    StoreRegIndirect,
+    StoreIndirect,
     /// Subtract with carry.
     Sub(Reg),
     /// Trap with a specified code.
@@ -106,9 +110,9 @@ impl Display for InstructionKind {
                 IncMem => "inc (NN)".to_owned(),
                 Jmp => "jmp NN".to_owned(),
                 LdIndexed => "ld R, (RR+D)".to_owned(),
-                LdRegImm(reg) => format!("ld {reg}, {}", if reg.is16() { "NN" } else { "N" }),
-                LdRegIndirect => "ld R, (RR)".to_owned(),
-                LdRegReg => "ld R1, R2".to_owned(),
+                LdImm(reg) => format!("ld {reg}, {}", if reg.is16() { "NN" } else { "N" }),
+                LdIndirect => "ld R, (RR)".to_owned(),
+                LdReg => "ld R1, R2".to_owned(),
                 Lsr(reg) => format!("lsr {reg}, S"),
                 Nop => "nop".to_owned(),
                 Pop(reg) => format!("pop {reg}"),
@@ -118,8 +122,9 @@ impl Display for InstructionKind {
                 Ret => "ret".to_owned(),
                 Rti => "rti".to_owned(),
                 Sec => "sec".to_owned(),
-                StoreRegDirect(reg) => format!("ld NN, {reg}"),
-                StoreRegIndirect => "ld (RR), R".to_owned(),
+                StoreDirect(reg) => format!("ld NN, {reg}"),
+                StoreIndexed => "ld (RR+D), R".to_owned(),
+                StoreIndirect => "ld (RR), R".to_owned(),
                 Sub(reg) => format!("sub {reg}, N"),
                 Trap => "trap T".to_owned(),
             }
@@ -142,12 +147,13 @@ impl TryFrom<u8> for InstructionKind {
             0x04 => Clc,
             0x08 => Ret,
             0x09 => Rti,
-            0x10..=0x1C => LdRegImm(reg?),
-            0x1D => LdRegIndirect,
-            0x1E => LdRegReg,
+            0x10..=0x1C => LdImm(reg?),
+            0x1D => LdIndirect,
+            0x1E => LdReg,
             0x1F => LdIndexed,
-            0x20..=0x27 => StoreRegDirect(reg?),
-            0x28 => StoreRegIndirect,
+            0x20..=0x27 => StoreDirect(reg?),
+            0x28 => StoreIndirect,
+            0x2F => StoreIndexed,
             0x30..=0x3C => Inc(reg?),
             0x3D => IncIndirect,
             0x3E => IncMem,
@@ -198,9 +204,9 @@ impl From<InstructionKind> for u8 {
             IncIndirect => 0x3D,
             IncMem => 0x3E,
             LdIndexed => 0x1F,
-            LdRegImm(reg) => 0x10 | u8::from(reg),
-            LdRegIndirect => 0x1D,
-            LdRegReg => 0x1E,
+            LdImm(reg) => 0x10 | u8::from(reg),
+            LdIndirect => 0x1D,
+            LdReg => 0x1E,
             Lsr(reg) => 0xA8 | u8::from(reg),
             Nop => 0x01,
             Pop(reg) => 0xE0 | u8::from(reg),
@@ -210,8 +216,9 @@ impl From<InstructionKind> for u8 {
             Ret => 0x08,
             Rti => 0x09,
             Sec => 0x03,
-            StoreRegDirect(reg) => 0x20 | u8::from(reg),
-            StoreRegIndirect => 0x28,
+            StoreDirect(reg) => 0x20 | u8::from(reg),
+            StoreIndexed => 0x2F,
+            StoreIndirect => 0x28,
             Sub(reg) => 0x60 | u8::from(reg),
             Trap => 0xF9,
         }
@@ -227,16 +234,16 @@ impl InstructionKind {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
             Add(_) | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchNe
-            | DecIndirect | IncIndirect | LdRegIndirect | LdRegReg | Lsr(_) | StoreRegIndirect
-            | Sub(_) | Trap => One,
-            Cmp(reg) | LdRegImm(reg) => {
+            | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr(_) | StoreIndirect | Sub(_)
+            | Trap => One,
+            Cmp(reg) | LdImm(reg) => {
                 if reg.is16() {
                     Two
                 } else {
                     One
                 }
             }
-            Call | DecMem | IncMem | Jmp | LdIndexed | StoreRegDirect(_) => Two,
+            Call | DecMem | IncMem | Jmp | LdIndexed | StoreDirect(_) | StoreIndexed => Two,
         }
     }
 }
