@@ -123,7 +123,7 @@ impl Display for InstructionKind {
                 Rti => "rti".to_owned(),
                 Sec => "sec".to_owned(),
                 StoreDirect(reg) => format!("ld NN, {reg}"),
-                StoreIndexed => "ld (RR+D), R".to_owned(),
+                StoreIndexed => "ld (RR+N), R".to_owned(),
                 StoreIndirect => "ld (RR), R".to_owned(),
                 Sub(reg) => format!("sub {reg}, N"),
                 Trap => "trap T".to_owned(),

@@ -525,7 +525,7 @@ impl Cpu {
         bus.write_mem(self.op(), self.regs.get(reg));
     }
 
-    /// Executes a `ld (RR+D), R` instruction.
+    /// Executes a `ld (RR+N), R` instruction.
     pub fn store_indexed(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {

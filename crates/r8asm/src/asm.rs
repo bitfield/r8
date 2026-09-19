@@ -475,7 +475,7 @@ impl Assembler {
                 self.emit_byte(u8::from(LdIndexed))?;
                 self.emit_byte(u8::from(RegToReg { source, target }))?;
                 match self.next_token()? {
-                    ByteLiteral(dis) => self.emit_byte(dis)?,
+                    ByteLiteral(index) => self.emit_byte(index)?,
                     other => bail!("unexpected token {other}"),
                 }
                 self.expect(&ParenClose)
@@ -563,7 +563,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a `ld (RR), R` or `ld (RR+D), R` instruction.
+    /// Generates a `ld (RR), R` or `ld (RR+N), R` instruction.
     ///
     /// # Errors
     ///
@@ -579,8 +579,8 @@ impl Assembler {
                 self.emit_byte(u8::from(RegToReg { source, target }))?;
             }
             Plus => {
-                let dis = match self.next_token()? {
-                    ByteLiteral(dis) => dis,
+                let index = match self.next_token()? {
+                    ByteLiteral(index) => index,
                     other => bail!("unexpected token {other}"),
                 };
                 self.expect(&ParenClose)?;
@@ -588,7 +588,7 @@ impl Assembler {
                 let source = self.expect_reg8()?;
                 self.emit_byte(u8::from(StoreIndexed))?;
                 self.emit_byte(u8::from(RegToReg { source, target }))?;
-                self.emit_byte(dis)?;
+                self.emit_byte(index)?;
             }
             other => bail!("unexpected token {other}"),
         }
@@ -856,12 +856,12 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Disassembles a `ld (RR+D), R` instruction.
+    /// Disassembles a `ld (RR+N), R` instruction.
     fn format_store_indexed(&mut self) -> String {
-        if let (Some(&regs), Some(dis)) = (self.code.next(), self.code.next())
+        if let (Some(&regs), Some(index)) = (self.code.next(), self.code.next())
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
-            format!("ld ({target}+{dis:#04X}), {source}")
+            format!("ld ({target}+{index:#04X}), {source}")
         } else {
             "??? (no operand)".to_owned()
         }
