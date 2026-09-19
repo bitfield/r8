@@ -38,8 +38,6 @@ pub struct Monitor {
     pub last_addr: Option<u16>,
     /// Last command entered.
     pub last_cmd: Option<Command>,
-    /// Skips running boot ROM at start.
-    pub skiprom: bool,
     /// Enables single-step mode.
     pub step: bool,
     /// The running system.
@@ -87,10 +85,8 @@ impl Monitor {
     /// If reading the user's command input fails.
     pub fn interact(&mut self) -> Result<()> {
         self.step = true;
+        self.sys.cpu.pc = 0x0100;
         self.last_cmd = Some(Step);
-        if !self.skiprom {
-            self.sys.reset();
-        }
         println!("{BANNER}");
         loop {
             self.sys.debug_print();
@@ -146,9 +142,6 @@ impl Monitor {
     ///
     /// * Any errors returned by [`interact`](Self::interact).
     pub fn run_program(&mut self, program: &[u8]) -> Result<()> {
-        if !self.skiprom {
-            self.sys.reset();
-        }
         self.sys.mem.load(0x0100, program)?;
         self.sys.cpu.pc = 0x0100;
         if self.step {

@@ -96,32 +96,32 @@ fn main() -> Result<()> {
             Ok(())
         }
         Command::Mon {
-            paths: Some(paths),
+            paths: maybe_paths,
             skiprom,
             step,
             turbo,
         } => {
-            for path in paths {
-                let program = fs::read(path)?;
-                let mut mon = Monitor::default();
-                mon.skiprom = skiprom;
-                mon.step = step;
-                mon.sys.turbo = turbo;
-                mon.run_program(&program)?;
+            let mut programs = Vec::new();
+            if let Some(paths) = maybe_paths {
+                for path in paths {
+                    let program = fs::read(path)?;
+                    programs.push(program);
+                }
+            }
+            let mut mon = Monitor::default();
+            if !skiprom {
+                mon.sys.reset();
+            }
+            mon.step = step;
+            mon.sys.turbo = turbo;
+            if programs.is_empty() {
+                mon.interact()?;
+            } else {
+                for program in programs {
+                    mon.run_program(&program)?;
+                }
             }
             Ok(())
-        }
-        Command::Mon {
-            paths: None,
-            skiprom,
-            turbo,
-            ..
-        } => {
-            let mut mon = Monitor::default();
-            mon.skiprom = skiprom;
-            mon.step = true;
-            mon.sys.turbo = turbo;
-            mon.interact()
         }
         Command::Run {
             paths,
@@ -132,7 +132,9 @@ fn main() -> Result<()> {
             for path in paths {
                 let program = assemble_source_file(&path)?;
                 let mut mon = Monitor::default();
-                mon.skiprom = skiprom;
+                if !skiprom {
+                    mon.sys.reset();
+                }
                 mon.step = step;
                 mon.sys.turbo = turbo;
                 mon.run_program(&program)?;
