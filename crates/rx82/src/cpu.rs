@@ -386,7 +386,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a `ld R, (RR+D)` instruction.
+    /// Executes a `ld R, (RR+N)` instruction.
     pub fn ld_indexed(&mut self, bus: &mut Bus) {
         if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             let addr = self.regs.get16(source).wrapping_add(u16::from(self.op_hi));

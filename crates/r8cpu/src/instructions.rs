@@ -109,7 +109,7 @@ impl Display for InstructionKind {
                 IncIndirect => "inc (RR)".to_owned(),
                 IncMem => "inc (NN)".to_owned(),
                 Jmp => "jmp NN".to_owned(),
-                LdIndexed => "ld R, (RR+D)".to_owned(),
+                LdIndexed => "ld R, (RR+N)".to_owned(),
                 LdImm(reg) => format!("ld {reg}, {}", if reg.is16() { "NN" } else { "N" }),
                 LdIndirect => "ld R, (RR)".to_owned(),
                 LdReg => "ld R1, R2".to_owned(),

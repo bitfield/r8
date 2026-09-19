@@ -406,7 +406,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a `ld R, N`, `ld R1, R2`, `ld R, (RR)` or `ld R, (RR+D)` instruction.
+    /// Generates a `ld R, N`, `ld R1, R2`, `ld R, (RR)` or `ld R, (RR+N)` instruction.
     ///
     /// # Errors
     ///
@@ -458,7 +458,7 @@ impl Assembler {
         self.emit_word(self.resolve_label(label)?)
     }
 
-    /// Generates a `ld R, (RR)` or `ld R, (RR+D)` instruction.
+    /// Generates a `ld R, (RR)` or `ld R, (RR+N)` instruction.
     ///
     /// # Errors
     ///
@@ -814,12 +814,12 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Dissassembles a `ld R, (RR+D)` instruction.
+    /// Dissassembles a `ld R, (RR+N)` instruction.
     fn format_ld_indexed(&mut self) -> String {
-        if let (Some(&regs), Some(dis)) = (self.code.next(), self.code.next())
+        if let (Some(&regs), Some(index)) = (self.code.next(), self.code.next())
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
-            format!("ld {target}, ({source}+{dis:#04X})")
+            format!("ld {target}, ({source}+{index:#04X})")
         } else {
             "??? (no operand)".to_owned()
         }
