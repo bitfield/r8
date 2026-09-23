@@ -878,6 +878,7 @@ mod tests {
         assert_eq!(sys.cpu.pc, 0xC000, "PC not initialized from reset vector");
         assert_eq!(sys.cpu.flags.carry, false, "carry not reset");
         assert_eq!(sys.cpu.flags.zero, false, "zero not reset");
+        assert_eq!(sys.cpu.flags.negative, false, "negative not reset");
     }
 
     #[test]
@@ -891,7 +892,7 @@ mod tests {
             addend: u8,
             output: u8,
             carry_out: bool,
-            zero_out: bool,
+            negative: bool,
         }
         let mut sys = System::default();
         let cases: &[Case] = &[
@@ -902,7 +903,7 @@ mod tests {
                 addend: 0xFF,
                 output: 0x00,
                 carry_out: true,
-                zero_out: true,
+                negative: false,
             },
             Case {
                 name: "c in, zero result",
@@ -911,7 +912,7 @@ mod tests {
                 addend: 0xFF,
                 output: 0x00,
                 carry_out: true,
-                zero_out: true,
+                negative: false,
             },
             Case {
                 name: "carry clears",
@@ -920,7 +921,7 @@ mod tests {
                 addend: 0x01,
                 output: 0xFF,
                 carry_out: false,
-                zero_out: false,
+                negative: true,
             },
             Case {
                 name: "carry affects result",
@@ -929,7 +930,7 @@ mod tests {
                 addend: 0x00,
                 output: 0x80,
                 carry_out: false,
-                zero_out: false,
+                negative: true,
             },
             Case {
                 name: "high bit, no carry",
@@ -938,7 +939,7 @@ mod tests {
                 addend: 0x01,
                 output: 0x81,
                 carry_out: false,
-                zero_out: false,
+                negative: true,
             },
             Case {
                 name: "two high bits",
@@ -947,7 +948,7 @@ mod tests {
                 addend: 0x80,
                 output: 0x00,
                 carry_out: true,
-                zero_out: true,
+                negative: false,
             },
             Case {
                 name: "ordinary addition",
@@ -956,7 +957,7 @@ mod tests {
                 addend: 0x34,
                 output: 0x46,
                 carry_out: false,
-                zero_out: false,
+                negative: false,
             },
             Case {
                 name: "carry changes zero",
@@ -965,7 +966,7 @@ mod tests {
                 addend: 0x00,
                 output: 0x00,
                 carry_out: true,
-                zero_out: true,
+                negative: false,
             },
             Case {
                 name: "nonzero clears zero",
@@ -974,7 +975,7 @@ mod tests {
                 addend: 0x01,
                 output: 0x02,
                 carry_out: false,
-                zero_out: false,
+                negative: false,
             },
             Case {
                 name: "zero sets zero",
@@ -983,7 +984,7 @@ mod tests {
                 addend: 0xFF,
                 output: 0x00,
                 carry_out: true,
-                zero_out: true,
+                negative: false,
             },
         ];
         for case in cases {
@@ -1004,11 +1005,18 @@ mod tests {
                 if case.carry_out { "set" } else { "cleared" }
             );
             assert_eq!(
+                sys.cpu.flags.negative,
+                case.negative,
+                "{}: negative not {}",
+                case.name,
+                if case.negative { "set" } else { "cleared" }
+            );
+            assert_eq!(
                 sys.cpu.flags.zero,
-                case.zero_out,
+                case.output == 0,
                 "{}: zero not {}",
                 case.name,
-                if case.zero_out { "set" } else { "cleared" }
+                if case.output == 0 { "set" } else { "cleared" }
             );
         }
     }
@@ -1024,7 +1032,11 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(A), 0x01, "wrong A");
-        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero and");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
         sys.test_asm(
             "
                 ld a, 0x03
@@ -1032,7 +1044,11 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(A), 0x01, "wrong A");
-        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero and");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
         sys.test_asm(
             "
                 ld a, 0xFF
@@ -1040,6 +1056,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: zero and");
     }
 
@@ -1212,59 +1232,84 @@ mod tests {
                 cmp a, 0x01
                 halt",
         );
-        assert_eq!(sys.cpu.flags.zero, true, "zero clear: equal cmp");
         assert_eq!(sys.cpu.flags.carry, true, "carry clear: equal cmp");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, true, "zero clear: equal cmp");
         sys.test_asm(
             "
                 ld a, 0x03
                 cmp a, 0x07
                 halt",
         );
-        assert_eq!(sys.cpu.flags.zero, false, "zero set: unequal cmp");
         assert_eq!(sys.cpu.flags.carry, false, "carry set: cmp with borrow");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: unequal cmp");
         sys.test_asm(
             "
                 ld a, 0x07
                 cmp a, 0x03
                 halt",
         );
-        assert_eq!(sys.cpu.flags.zero, false, "zero set: unequal comparison");
         assert_eq!(sys.cpu.flags.carry, true, "carry clear: cmp with no borrow");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: unequal comparison");
         sys.test_asm(
             "
                 ld gh, 0xFF03
                 cmp gh, 0xFF03
                 halt",
         );
-        assert_eq!(sys.cpu.flags.zero, true, "zero clear: equal cmp");
         assert_eq!(sys.cpu.flags.carry, true, "carry clear: equal cmp");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, true, "zero clear: equal cmp");
         sys.test_asm(
             "
                 ld ab, 0x0003
-                cmp ab, 0xFF07
+                cmp ab, 0x0007
                 halt",
         );
-        assert_eq!(sys.cpu.flags.zero, false, "zero set: unequal cmp");
         assert_eq!(sys.cpu.flags.carry, false, "carry set: cmp with borrow");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: unequal cmp");
         sys.test_asm(
             "
                 ld cd, 0x0107
                 cmp cd, 0x0103
                 halt",
         );
-        assert_eq!(sys.cpu.flags.zero, false, "zero set: unequal cmp");
         assert_eq!(sys.cpu.flags.carry, true, "carry clear: cmp with no borrow");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: unequal cmp");
         sys.test_asm(
             "
                 ld cd, 0xFFFF
-                cmp a, 0x00
+                cmp a, 0x00 ; test we clear operand high byte properly
                 halt",
         );
-        assert_eq!(
-            sys.cpu.flags.zero, true,
-            "zero clear: equal cmp (junk in high byte?)"
-        );
         assert_eq!(sys.cpu.flags.carry, true, "carry clear: cmp with no borrow");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, true, "zero clear: equal cmp");
     }
 
     #[test]
@@ -1276,6 +1321,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(A), 0xFF, "wrong A");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero set: dec to non-zero");
         sys.test_asm(
             "
@@ -1284,6 +1333,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(SP), 0xFF00, "wrong SP");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero set: dec to non-zero");
         sys.test_asm(
             "
@@ -1292,12 +1345,20 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: dec to zero");
         sys.test_asm(
             "
                 ld ef, 0x0001
                 dec ef
                 halt",
+        );
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
         );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: dec to zero");
     }
@@ -1313,6 +1374,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.mem.get(0x0010), 0x01, "wrong memory contents");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero set: dec to non-zero");
         sys.test_asm(
             "
@@ -1320,6 +1385,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.mem.get(0x0010), 0x00, "wrong memory contents");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: dec to zero");
     }
 
@@ -1335,6 +1404,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.mem.get(0x0010), 0x01, "wrong memory contents");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero set: dec to non-zero");
         sys.test_asm(
             "
@@ -1342,6 +1415,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.mem.get(0x0010), 0x00, "wrong memory contents");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: dec to zero");
     }
 
@@ -1362,6 +1439,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(D), 0x01, "wrong D");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero set: inc to non-zero");
         sys.test_asm(
             "
@@ -1369,6 +1450,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(AB), 0x0001, "wrong AB");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero set: inc to non-zero");
         sys.test_asm(
             "
@@ -1377,6 +1462,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: inc to zero");
         sys.test_asm(
             "
@@ -1385,6 +1474,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(AB), 0x0000, "wrong AB");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: inc to zero");
         sys.test_asm(
             "
@@ -1393,6 +1486,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(SP), 0x0000, "wrong SP");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: inc to zero");
     }
 
@@ -1407,6 +1504,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.mem.get(0x0010), 0xFF, "wrong memory contents");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero set: inc to non-zero");
         sys.test_asm(
             "
@@ -1414,6 +1515,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.mem.get(0x0010), 0x00, "wrong memory contents");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: inc to zero");
     }
 
@@ -1429,6 +1534,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.mem.get(0x0010), 0xFF, "wrong memory contents");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero set: inc to non-zero");
         sys.test_asm(
             "
@@ -1436,6 +1545,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.mem.get(0x0010), 0x00, "wrong memory contents");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: inc to zero");
     }
 
@@ -1463,6 +1576,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(A), 0xFF, "wrong A");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
         assert_hex!(sys.cpu.pc, 0x0103, "wrong PC");
         sys.cpu.flags.zero = false;
@@ -1472,6 +1589,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero not set");
         assert_hex!(sys.cpu.pc, 0x0103, "wrong PC");
     }
@@ -1486,6 +1607,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(AB), 0xA0C0, "wrong AB");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
         assert_hex!(sys.cpu.pc, 0x0104, "wrong PC");
         sys.cpu.flags.zero = false;
@@ -1495,6 +1620,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(SP), 0x0000, "wrong SP");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero not set");
         assert_hex!(sys.cpu.pc, 0x0104, "wrong PC");
     }
@@ -1512,6 +1641,10 @@ mod tests {
             ",
         );
         assert_hex!(sys.cpu.regs.get(A), 0xFF, "wrong A");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
     }
 
@@ -1531,6 +1664,10 @@ mod tests {
         );
         assert_hex!(sys.cpu.regs.get(B), 0xFF, "wrong B");
         assert_hex!(sys.cpu.regs.get(C), 0xFF, "wrong C");
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
         sys.cpu.flags.zero = false;
         sys.test_asm(
@@ -1543,6 +1680,10 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get(C), 0x00, "wrong C");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero not set");
     }
 
@@ -1558,6 +1699,10 @@ mod tests {
                 ld e, c
                 halt",
         );
+        assert_eq!(
+            sys.cpu.flags.negative, true,
+            "negative clear: negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
         assert_hex!(sys.cpu.regs.get(B), 0xFF, "wrong B");
         assert_hex!(sys.cpu.regs.get16(CD), 0xFFFF, "wrong CD");
@@ -1569,39 +1714,122 @@ mod tests {
                 ld a, b
                 halt",
         );
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero not set");
         assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
     }
 
     #[test]
+    #[expect(clippy::arbitrary_source_item_ordering, reason = "logical ordering")]
     fn lsr() {
         use InstructionKind::Lsr;
-        let mut sys = System::default();
-        let cases: &[(&str, u8, bool, u8, u8, bool)] = &[
-            ("shifts correctly", 0xF0, false, 0x04, 0x0F, false),
-            ("clears carry", 0x17, true, 0x04, 0x01, false),
-            ("sets carry", 0x78, false, 0x04, 0x07, true),
-            ("min shift == 1", 0x01, false, 0x00, 0x00, true),
-            ("max shift == 8", 0xF1, false, 0xFF, 0x00, true),
-            ("shift 8, no carry", 0x7F, true, 0x08, 0x00, false),
-            ("shift 8, carry", 0xFF, false, 0x08, 0x00, true),
+        struct Case {
+            name: &'static str,
+            carry_in: bool,
+            input: u8,
+            shift: u8,
+            output: u8,
+            carry_out: bool,
+            negative: bool,
+        }
+        let cases: &[Case] = &[
+            Case {
+                name: "shifts correctly",
+                carry_in: false,
+                input: 0xF0,
+                shift: 0x04,
+                output: 0x0F,
+                carry_out: false,
+                negative: false,
+            },
+            Case {
+                name: "clears carry",
+                carry_in: true,
+                input: 0x17,
+                shift: 0x04,
+                output: 0x01,
+                carry_out: false,
+                negative: false,
+            },
+            Case {
+                name: "sets carry",
+                carry_in: false,
+                input: 0x78,
+                shift: 0x04,
+                output: 0x07,
+                carry_out: true,
+                negative: false,
+            },
+            Case {
+                name: "min shift == 1",
+                carry_in: false,
+                input: 0x01,
+                shift: 0x00,
+                output: 0x00,
+                carry_out: true,
+                negative: false,
+            },
+            Case {
+                name: "max shift == 8",
+                carry_in: false,
+                input: 0xF1,
+                shift: 0xFF,
+                output: 0x00,
+                carry_out: true,
+                negative: false,
+            },
+            Case {
+                name: "shift 8, no carry",
+                carry_in: true,
+                input: 0x7F,
+                shift: 0x08,
+                output: 0x00,
+                carry_out: false,
+                negative: false,
+            },
+            Case {
+                name: "shift 8, carry",
+                carry_in: false,
+                input: 0xFF,
+                shift: 0x08,
+                output: 0x00,
+                carry_out: true,
+                negative: false,
+            },
         ];
-        for &(name, start_a, start_carry, shift, want_a, want_carry) in cases {
-            sys.cpu.flags.carry = start_carry;
-            sys.cpu.regs.set(A, start_a);
-            sys.test_prog(&[u8::from(Lsr(A)), shift]);
-            assert_hex!(sys.cpu.regs.get(A), want_a, format!("{name}: wrong A"));
+        let mut sys = System::default();
+        for case in cases {
+            sys.cpu.flags.carry = case.carry_in;
+            sys.cpu.regs.set(A, case.input);
+            sys.test_prog(&[u8::from(Lsr(A)), case.shift]);
+            assert_hex!(
+                sys.cpu.regs.get(A),
+                case.output,
+                format!("{}: wrong A", case.name)
+            );
             assert_eq!(
                 sys.cpu.flags.carry,
-                want_carry,
-                "{name}: carry not {}",
-                if want_carry { "set" } else { "cleared" }
+                case.carry_out,
+                "{}: carry not {}",
+                case.name,
+                if case.carry_out { "set" } else { "cleared" }
+            );
+            assert_eq!(
+                sys.cpu.flags.negative,
+                case.negative,
+                "{}: negative not {}",
+                case.name,
+                if case.negative { "set" } else { "cleared" }
             );
             assert_eq!(
                 sys.cpu.flags.zero,
-                want_a == 0,
-                "{name}: zero not {}",
-                if want_a == 0 { "set" } else { "cleared" }
+                case.output == 0,
+                "{}: zero not {}",
+                case.name,
+                if case.output == 0 { "set" } else { "cleared" }
             );
         }
     }
@@ -1632,6 +1860,10 @@ mod tests {
         assert_hex!(sys.cpu.regs.get16(SP), 0xBFFF, "wrong SP");
         assert_hex!(sys.cpu.regs.get16(GH), 0x0102, "wrong GH");
         assert_hex!(sys.cpu.regs.get(B), 0x03, "wrong B");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
         sys.mem.load(0xBFFE, &[0x00, 0x00]).unwrap();
         sys.test_asm(
@@ -1643,24 +1875,38 @@ mod tests {
         );
         assert_hex!(sys.cpu.regs.get16(SP), 0xBFFF, "wrong SP");
         assert_hex!(sys.cpu.regs.get16(GH), 0x0000, "wrong GH");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
         assert_eq!(sys.cpu.flags.zero, true, "zero not set");
     }
 
     #[test]
     fn pop_ps() {
         let mut sys = System::default();
-        sys.mem.load(0xBFFD, &[0x03, 0x02, 0x01]).unwrap();
+        sys.mem.load(0xBFFC, &[0x80, 0x03, 0x02, 0x01]).unwrap();
         sys.cpu.flags.zero = false;
         sys.cpu.flags.carry = false;
         sys.test_asm(
             "
-                ld sp, 0xBFFC
+                ld sp, 0xBFFB
+                pop ps
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(SP), 0xBFFC, "wrong SP");
+        assert_eq!(sys.cpu.flags.carry, false, "carry set");
+        assert_eq!(sys.cpu.flags.negative, true, "negative not set");
+        assert_eq!(sys.cpu.flags.zero, false, "zero set");
+        sys.test_asm(
+            "
                 pop ps
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(SP), 0xBFFD, "wrong SP");
-        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
         assert_eq!(sys.cpu.flags.carry, true, "carry not set");
+        assert_eq!(sys.cpu.flags.negative, false, "negative set");
+        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
         sys.cpu.flags.zero = false;
         sys.test_asm(
             "
@@ -1668,8 +1914,9 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(SP), 0xBFFE, "wrong SP");
-        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
         assert_eq!(sys.cpu.flags.carry, false, "carry not cleared");
+        assert_eq!(sys.cpu.flags.negative, false, "negative set");
+        assert_eq!(sys.cpu.flags.zero, true, "zero not set");
         sys.cpu.flags.zero = true;
         sys.test_asm(
             "
@@ -1677,17 +1924,29 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(SP), 0xBFFF, "wrong SP");
-        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
         assert_eq!(sys.cpu.flags.carry, true, "carry not set");
+        assert_eq!(sys.cpu.flags.negative, false, "negative set");
+        assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
+    }
+
+    #[test]
+    fn ps_is_correctly_deccoded() {
+        let flags = Flags {
+            carry: true,
+            negative: true,
+            zero: true,
+        };
+        assert_eq!(Flags::from(0x83), flags);
     }
 
     #[test]
     fn ps_is_correctly_encoded() {
         let flags = Flags {
             carry: true,
+            negative: true,
             zero: true,
         };
-        assert_eq!(u8::from(flags), 0x03);
+        assert_eq!(u8::from(flags), 0x83);
     }
 
     #[test]
@@ -1776,13 +2035,15 @@ mod tests {
     #[test]
     fn store_direct() {
         let mut sys = System::default();
+        sys.cpu.regs.set(A, 0xFF);
+        sys.cpu.flags.negative = false;
         sys.test_asm(
             "
-                ld a, 0xFF
                 ld 0xBEEF, a
                 halt",
         );
         let value = sys.mem.get(0xBEEF);
+        assert_eq!(sys.cpu.flags.negative, false, "negative set");
         assert_hex!(value, 0xFF, "wrong mem value");
     }
 
@@ -1815,37 +2076,132 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::arbitrary_source_item_ordering, reason = "logical order")]
     fn sub() {
         use InstructionKind::Sub;
-        let mut sys = System::default();
-        let cases: &[(&str, u8, bool, u8, u8, bool)] = &[
-            ("!borrow in, zero out", 0x02, false, 0x01, 0x00, true),
-            ("borrow in, zero out", 0xFF, true, 0xFF, 0x00, true),
-            ("carry clears", 0x01, true, 0x02, 0xFF, false),
-            ("carry affects result", 0x7F, false, 0x00, 0x7E, true),
-            ("high bit, no borrow", 0x81, true, 0x01, 0x80, true),
-            ("two high bits", 0x80, true, 0x80, 0x00, true),
-            ("ordinary subtract", 0x46, true, 0x12, 0x34, true),
-            ("zero sets zero", 0xFF, true, 0xFF, 0x00, true),
-            ("nonzero clears zero", 0x03, false, 0x01, 0x01, true),
+        struct Case {
+            name: &'static str,
+            carry_in: bool,
+            minuend: u8,
+            subtrahend: u8,
+            output: u8,
+            carry_out: bool,
+            negative: bool,
+        }
+        let cases: &[Case] = &[
+            Case {
+                name: "!borrow in, zero out",
+                carry_in: false,
+                minuend: 0x02,
+                subtrahend: 0x01,
+                output: 0x00,
+                carry_out: true,
+                negative: false,
+            },
+            Case {
+                name: "borrow in, zero out",
+                carry_in: true,
+                minuend: 0xFF,
+                subtrahend: 0xFF,
+                output: 0x00,
+                carry_out: true,
+                negative: false,
+            },
+            Case {
+                name: "carry clears",
+                carry_in: true,
+                minuend: 0x01,
+                subtrahend: 0x02,
+                output: 0xFF,
+                carry_out: false,
+                negative: true,
+            },
+            Case {
+                name: "carry affects result",
+                carry_in: false,
+                minuend: 0x7F,
+                subtrahend: 0x00,
+                output: 0x7E,
+                carry_out: true,
+                negative: false,
+            },
+            Case {
+                name: "high bit, no borrow",
+                carry_in: true,
+                minuend: 0x81,
+                subtrahend: 0x01,
+                output: 0x80,
+                carry_out: true,
+                negative: true,
+            },
+            Case {
+                name: "two high bits",
+                carry_in: true,
+                minuend: 0x80,
+                subtrahend: 0x80,
+                output: 0x00,
+                carry_out: true,
+                negative: false,
+            },
+            Case {
+                name: "ordinary subtract",
+                carry_in: true,
+                minuend: 0x46,
+                subtrahend: 0x12,
+                output: 0x34,
+                carry_out: true,
+                negative: false,
+            },
+            Case {
+                name: "zero sets zero",
+                carry_in: true,
+                minuend: 0xFF,
+                subtrahend: 0xFF,
+                output: 0x00,
+                carry_out: true,
+                negative: false,
+            },
+            Case {
+                name: "nonzero clears zero",
+                carry_in: false,
+                minuend: 0x03,
+                subtrahend: 0x01,
+                output: 0x01,
+                carry_out: true,
+                negative: false,
+            },
         ];
-        for &(name, start_a, start_carry, subtrahend, want_a, want_carry) in cases {
-            sys.cpu.flags.carry = start_carry;
+        let mut sys = System::default();
+        for case in cases {
+            sys.cpu.flags.carry = case.carry_in;
             sys.cpu.flags.zero = true;
-            sys.cpu.regs.set(A, start_a);
-            sys.test_prog(&[u8::from(Sub(A)), subtrahend]);
-            assert_hex!(sys.cpu.regs.get(A), want_a, format!("{name}: wrong A"));
+            sys.cpu.regs.set(A, case.minuend);
+            sys.test_prog(&[u8::from(Sub(A)), case.subtrahend]);
+            assert_hex!(
+                sys.cpu.regs.get(A),
+                case.output,
+                format!("{}: wrong A", case.name)
+            );
             assert_eq!(
                 sys.cpu.flags.carry,
-                want_carry,
-                "{name}: carry not {}",
-                if want_carry { "set" } else { "cleared" }
+                case.carry_out,
+                "{}: carry not {}",
+                case.name,
+                if case.carry_out { "set" } else { "cleared" }
+            );
+            assert_eq!(
+                sys.cpu.flags.negative,
+                case.negative,
+                "{}: negative not {}",
+                case.name,
+                if case.negative { "set" } else { "cleared" }
             );
             assert_eq!(
                 sys.cpu.flags.zero,
-                want_a == 0,
-                "{name}: zero not {}",
-                if want_a == 0 { "set" } else { "cleared" }
+                case.output == 0,
+                "{}: zero not {}",
+                case.name,
+                if case.output == 0 { "set" } else { "cleared" }
             );
         }
     }
@@ -1874,32 +2230,40 @@ mod tests {
     }
 
     #[test]
-    fn zero_flag() {
+    fn zero_and_negative_flags() {
         let mut sys = System::default();
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative flag wrongly initialised"
+        );
         assert_eq!(sys.cpu.flags.zero, false, "zero flag wrongly initialised");
         sys.test_asm(
             "
                 dec a
                 halt",
         ); // a = -1
+        assert_eq!(sys.cpu.flags.negative, true, "negative flag not set");
         assert_eq!(sys.cpu.flags.zero, false, "zero flag set after dec");
         sys.test_asm(
             "
                 inc a
                 halt",
         ); // a = 0
+        assert_eq!(sys.cpu.flags.negative, false, "negative flag set");
         assert_eq!(sys.cpu.flags.zero, true, "zero flag clear after inc");
         sys.test_asm(
             "
                 inc a
                 halt",
         ); // a = 1
+        assert_eq!(sys.cpu.flags.negative, false, "negative flag set");
         assert_eq!(sys.cpu.flags.zero, false, "zero flag set after inc");
         sys.test_asm(
             "
                 dec a
                 halt",
         ); // a = 0
+        assert_eq!(sys.cpu.flags.negative, false, "negative flag set");
         assert_eq!(sys.cpu.flags.zero, true, "zero flag clear after dec");
     }
 }

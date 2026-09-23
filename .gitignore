@@ -4,3 +4,4 @@ tmp*.*
 !functional_tests/*.bin
 !rx82_rom.bin
 .DS_Store
+bacon.toml
