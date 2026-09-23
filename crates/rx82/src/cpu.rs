@@ -814,44 +814,85 @@ mod tests {
 
     #[test]
     fn cpu_traps_for_various_illegal_programs() {
+        struct Case {
+            name: &'static str,
+            program: &'static [u8],
+        }
+        let cases: &[Case] = &[
+            Case {
+                name: "reserved opcode",
+                program: &[0x01, 0xFF],
+            },
+            Case {
+                name: "`ld R, (RR)` with invalid regs",
+                program: &[0x1D, 0xFF],
+            },
+            Case {
+                name: "`ld (RR), R` with invalid regs",
+                program: &[0x28, 0xFF],
+            },
+            Case {
+                name: "`ld R1, R2` with mixed 8/16 regs",
+                program: &[0x1E, 0x08],
+            },
+            Case {
+                name: "`inc (RR)` with invalid regs",
+                program: &[0x3D, 0xFF],
+            },
+            Case {
+                name: "`dec (RR)` with invalid regs",
+                program: &[0x4D, 0xFF],
+            },
+            Case {
+                name: "`trap` with invalid code",
+                program: &[0xF9, 0x40],
+            },
+        ];
         let mut sys = System::default();
         // dummy trap 0x00 handler, jumps to `halt` at 0x0002
         sys.mem.load(0x0000, &[0x02, 0x00, u8::from(Halt)]).unwrap();
-        let cases: &[&[u8]] = &[
-            &[0x01, 0xFF], // reserved opcode
-            &[0x1D, 0xFF], // `ld R, (RR)` with invalid regs
-            &[0x28, 0xFF], // `ld (RR), R` with invalid regs
-            &[0x1E, 0x08], // `ld R1, R2` with mixed 8/16 regs
-            &[0x3D, 0xFF], // `inc (RR)` with invalid regs
-            &[0x4D, 0xFF], // `dec (RR)` with invalid regs
-            &[0xF9, 0x40], // `trap` with invalid code
-        ];
-        for prog in cases {
+        for case in cases {
             // initialise stack
             sys.cpu.regs.set16(SP, 0xBFFF);
             sys.cpu.flags.carry = true;
             // junk to be overwritten by trap stack frame
             sys.mem.load(0xBFFC, &[0xFF, 0xFF, 0xFF, 0xFF]).unwrap();
-            sys.test_prog(prog);
+            sys.test_prog(case.program);
+            assert_eq!(
+                sys.cpu.regs.get16(SP),
+                0xBFFB,
+                "{}: {}: no trap",
+                case.name,
+                as_hex(case.program)
+            );
             // verify trap stack frame
             assert_eq!(
                 sys.mem.get(0xBFFF),
                 0x01,
-                "{}: wrong return address high byte",
-                as_hex(prog)
+                "{}: {}: wrong return address high byte",
+                case.name,
+                as_hex(case.program)
             );
             assert_eq!(
                 sys.mem.get(0xBFFE),
-                u8::try_from(prog.len()).unwrap(),
-                "{}: wrong return address low byte",
-                as_hex(prog)
+                u8::try_from(case.program.len()).unwrap(),
+                "{}: {}: wrong return address low byte",
+                case.name,
+                as_hex(case.program)
             );
-            assert_eq!(sys.mem.get(0xBFFD), 0x01, "{}: wrong flags", as_hex(prog));
+            assert_eq!(
+                sys.mem.get(0xBFFD),
+                0x01,
+                "{}: {}: wrong flags",
+                case.name,
+                as_hex(case.program)
+            );
             assert_eq!(
                 sys.mem.get(0xBFFC),
                 TRAP_ILLEGAL,
-                "{}: wrong trap code",
-                as_hex(prog)
+                "{}: {}: wrong trap code",
+                case.name,
+                as_hex(case.program)
             );
         }
     }
@@ -894,7 +935,6 @@ mod tests {
             addend: u8,
             output: u8,
             carry_out: bool,
-            negative: bool,
         }
         let mut sys = System::default();
         let cases: &[Case] = &[
@@ -905,7 +945,6 @@ mod tests {
                 addend: 0xFF,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "c in, zero result",
@@ -914,7 +953,6 @@ mod tests {
                 addend: 0xFF,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "carry clears",
@@ -923,7 +961,6 @@ mod tests {
                 addend: 0x01,
                 output: 0xFF,
                 carry_out: false,
-                negative: true,
             },
             Case {
                 name: "carry affects result",
@@ -932,7 +969,6 @@ mod tests {
                 addend: 0x00,
                 output: 0x80,
                 carry_out: false,
-                negative: true,
             },
             Case {
                 name: "high bit, no carry",
@@ -941,7 +977,6 @@ mod tests {
                 addend: 0x01,
                 output: 0x81,
                 carry_out: false,
-                negative: true,
             },
             Case {
                 name: "two high bits",
@@ -950,7 +985,6 @@ mod tests {
                 addend: 0x80,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "ordinary addition",
@@ -959,7 +993,6 @@ mod tests {
                 addend: 0x34,
                 output: 0x46,
                 carry_out: false,
-                negative: false,
             },
             Case {
                 name: "carry changes zero",
@@ -968,7 +1001,6 @@ mod tests {
                 addend: 0x00,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "nonzero clears zero",
@@ -977,7 +1009,6 @@ mod tests {
                 addend: 0x01,
                 output: 0x02,
                 carry_out: false,
-                negative: false,
             },
             Case {
                 name: "zero sets zero",
@@ -986,7 +1017,6 @@ mod tests {
                 addend: 0xFF,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
         ];
         for case in cases {
@@ -1008,10 +1038,14 @@ mod tests {
             );
             assert_eq!(
                 sys.cpu.flags.negative,
-                case.negative,
+                case.output & 0x80 != 0,
                 "{}: negative not {}",
                 case.name,
-                if case.negative { "set" } else { "cleared" }
+                if case.output & 0x80 != 0 {
+                    "set"
+                } else {
+                    "cleared"
+                }
             );
             assert_eq!(
                 sys.cpu.flags.zero,
@@ -1024,45 +1058,58 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::arbitrary_source_item_ordering, reason = "logical order")]
     fn and() {
+        struct Case {
+            name: &'static str,
+            input: u8,
+            mask: u8,
+            output: u8,
+        }
+        let cases = &[
+            Case {
+                name: "no bits masked",
+                input: 0x01,
+                mask: 0x01,
+                output: 0x01,
+            },
+            Case {
+                name: "one bit masked",
+                input: 0x03,
+                mask: 0x01,
+                output: 0x01,
+            },
+            Case {
+                name: "all bits masked",
+                input: 0xFF,
+                mask: 0x00,
+                output: 0x00,
+            },
+        ];
         let mut sys = System::default();
-        sys.cpu.flags.zero = false;
-        sys.test_asm(
-            "
-                ld a, 0x01
-                and a, 0x01
-                halt",
-        );
-        assert_hex!(sys.cpu.regs.get(A), 0x01, "wrong A");
-        assert_eq!(
-            sys.cpu.flags.negative, false,
-            "negative set: non-negative result"
-        );
-        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
-        sys.test_asm(
-            "
-                ld a, 0x03
-                and a, 0x01
-                halt",
-        );
-        assert_hex!(sys.cpu.regs.get(A), 0x01, "wrong A");
-        assert_eq!(
-            sys.cpu.flags.negative, false,
-            "negative set: non-negative result"
-        );
-        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
-        sys.test_asm(
-            "
-                ld a, 0xFF
-                and a, 0x00
-                halt",
-        );
-        assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
-        assert_eq!(
-            sys.cpu.flags.negative, false,
-            "negative set: non-negative result"
-        );
-        assert_eq!(sys.cpu.flags.zero, true, "zero clear: zero and");
+        for case in cases {
+            sys.cpu.regs.set(A, case.input);
+            sys.test_prog(&[u8::from(And(A)), case.mask]);
+            assert_hex!(sys.cpu.regs.get(A), case.output, "wrong A");
+            assert_eq!(
+                sys.cpu.flags.negative,
+                case.output & 0x80 != 0,
+                "{}: negative not {}",
+                case.name,
+                if case.output & 0x80 != 0 {
+                    "set"
+                } else {
+                    "cleared"
+                }
+            );
+            assert_eq!(
+                sys.cpu.flags.zero,
+                case.output == 0,
+                "{}: zero not {}",
+                case.name,
+                if case.output == 0 { "set" } else { "cleared" }
+            );
+        }
     }
 
     #[test]
@@ -1777,7 +1824,6 @@ mod tests {
             shift: u8,
             output: u8,
             carry_out: bool,
-            negative: bool,
         }
         let cases: &[Case] = &[
             Case {
@@ -1787,7 +1833,6 @@ mod tests {
                 shift: 0x04,
                 output: 0x0F,
                 carry_out: false,
-                negative: false,
             },
             Case {
                 name: "clears carry",
@@ -1796,7 +1841,6 @@ mod tests {
                 shift: 0x04,
                 output: 0x01,
                 carry_out: false,
-                negative: false,
             },
             Case {
                 name: "sets carry",
@@ -1805,7 +1849,6 @@ mod tests {
                 shift: 0x04,
                 output: 0x07,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "min shift == 1",
@@ -1814,7 +1857,6 @@ mod tests {
                 shift: 0x00,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "max shift == 8",
@@ -1823,7 +1865,6 @@ mod tests {
                 shift: 0xFF,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "shift 8, no carry",
@@ -1832,7 +1873,6 @@ mod tests {
                 shift: 0x08,
                 output: 0x00,
                 carry_out: false,
-                negative: false,
             },
             Case {
                 name: "shift 8, carry",
@@ -1841,7 +1881,6 @@ mod tests {
                 shift: 0x08,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
         ];
         let mut sys = System::default();
@@ -1863,10 +1902,14 @@ mod tests {
             );
             assert_eq!(
                 sys.cpu.flags.negative,
-                case.negative,
+                case.output & 0x80 != 0,
                 "{}: negative not {}",
                 case.name,
-                if case.negative { "set" } else { "cleared" }
+                if case.output & 0x80 != 0 {
+                    "set"
+                } else {
+                    "cleared"
+                }
             );
             assert_eq!(
                 sys.cpu.flags.zero,
@@ -2130,7 +2173,6 @@ mod tests {
             subtrahend: u8,
             output: u8,
             carry_out: bool,
-            negative: bool,
         }
         let cases: &[Case] = &[
             Case {
@@ -2140,7 +2182,6 @@ mod tests {
                 subtrahend: 0x01,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "borrow in, zero out",
@@ -2149,7 +2190,6 @@ mod tests {
                 subtrahend: 0xFF,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "carry clears",
@@ -2158,7 +2198,6 @@ mod tests {
                 subtrahend: 0x02,
                 output: 0xFF,
                 carry_out: false,
-                negative: true,
             },
             Case {
                 name: "carry affects result",
@@ -2167,7 +2206,6 @@ mod tests {
                 subtrahend: 0x00,
                 output: 0x7E,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "high bit, no borrow",
@@ -2176,7 +2214,6 @@ mod tests {
                 subtrahend: 0x01,
                 output: 0x80,
                 carry_out: true,
-                negative: true,
             },
             Case {
                 name: "two high bits",
@@ -2185,7 +2222,6 @@ mod tests {
                 subtrahend: 0x80,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "ordinary subtract",
@@ -2194,7 +2230,6 @@ mod tests {
                 subtrahend: 0x12,
                 output: 0x34,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "zero sets zero",
@@ -2203,7 +2238,6 @@ mod tests {
                 subtrahend: 0xFF,
                 output: 0x00,
                 carry_out: true,
-                negative: false,
             },
             Case {
                 name: "nonzero clears zero",
@@ -2212,7 +2246,6 @@ mod tests {
                 subtrahend: 0x01,
                 output: 0x01,
                 carry_out: true,
-                negative: false,
             },
         ];
         let mut sys = System::default();
@@ -2235,10 +2268,14 @@ mod tests {
             );
             assert_eq!(
                 sys.cpu.flags.negative,
-                case.negative,
+                case.output & 0x80 != 0,
                 "{}: negative not {}",
                 case.name,
-                if case.negative { "set" } else { "cleared" }
+                if case.output & 0x80 != 0 {
+                    "set"
+                } else {
+                    "cleared"
+                }
             );
             assert_eq!(
                 sys.cpu.flags.zero,
