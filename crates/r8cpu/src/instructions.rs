@@ -19,8 +19,12 @@ pub enum InstructionKind {
     BranchCs,
     /// Branch if the zero flag is set.
     BranchEq,
+    /// Branch if the negative flag is set.
+    BranchMi,
     /// Branch if the zero flag is clear.
     BranchNe,
+    /// Branch if the negative flag is clear.
+    BranchPl,
     /// Call a subroutine.
     Call,
     /// Clear carry flag.
@@ -97,7 +101,9 @@ impl Display for InstructionKind {
                 BranchCc => "bcc D".to_owned(),
                 BranchCs => "bcs D".to_owned(),
                 BranchEq => "beq D".to_owned(),
+                BranchMi => "bmi D".to_owned(),
                 BranchNe => "bne D".to_owned(),
+                BranchPl => "bpl D".to_owned(),
                 Call => "call NN".to_owned(),
                 Clc => "clc".to_owned(),
                 Cmp(reg) => format!("cmp {reg}, N"),
@@ -174,6 +180,8 @@ impl TryFrom<u8> for InstructionKind {
             0xF2 => BranchNe,
             0xF3 => BranchCs,
             0xF4 => BranchCc,
+            0xF5 => BranchMi,
+            0xF6 => BranchPl,
             0xF7 => Jmp,
             0xF8 => Call,
             0xF9 => Trap,
@@ -191,7 +199,9 @@ impl From<InstructionKind> for u8 {
             BranchCc => 0xF4,
             BranchCs => 0xF3,
             BranchEq => 0xF1,
+            BranchMi => 0xF5,
             BranchNe => 0xF2,
+            BranchPl => 0xF6,
             Call => 0xF8,
             Clc => 0x04,
             Cmp(reg) => 0x70 | u8::from(reg),
@@ -233,9 +243,9 @@ impl InstructionKind {
         match *self {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
-            Add(_) | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchNe
-            | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr(_) | StoreIndirect | Sub(_)
-            | Trap => One,
+            Add(_) | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
+            | BranchNe | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr(_)
+            | StoreIndirect | Sub(_) | Trap => One,
             Cmp(reg) | LdImm(reg) => {
                 if reg.is16() {
                     Two

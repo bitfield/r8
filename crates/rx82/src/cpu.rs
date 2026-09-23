@@ -305,7 +305,9 @@ impl Cpu {
             BranchCc if !self.flags.carry => self.branch(self.op_lo),
             BranchCs if self.flags.carry => self.branch(self.op_lo),
             BranchEq if self.flags.zero => self.branch(self.op_lo),
+            BranchMi if self.flags.negative => self.branch(self.op_lo),
             BranchNe if !self.flags.zero => self.branch(self.op_lo),
+            BranchPl if !self.flags.negative => self.branch(self.op_lo),
             Call => self.call(self.op(), bus),
             Clc => self.flags.carry = false,
             Cmp(reg) => self.cmp(reg),
@@ -334,7 +336,7 @@ impl Cpu {
             StoreIndirect => self.store_indirect(bus),
             Sub(reg) => self.sub(reg, self.op_lo),
             Trap => self.trap(self.op_lo, bus),
-            Nop | BranchCc | BranchCs | BranchEq | BranchNe => {}
+            Nop | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe | BranchPl => {}
         }
     }
 
@@ -1158,6 +1160,27 @@ mod tests {
     }
 
     #[test]
+    fn bmi() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld a, 0x7F
+                bmi 0x01
+                halt
+                halt",
+        );
+        assert_hex!(sys.cpu.pc, 0x0105, "branch taken");
+        sys.test_asm(
+            "
+                ld a, 0x80
+                bmi 0x01
+                halt
+                halt",
+        );
+        assert_hex!(sys.cpu.pc, 0x0106, "branch not taken");
+    }
+
+    #[test]
     fn bne() {
         let mut sys = System::default();
         sys.cpu.flags.zero = true;
@@ -1176,6 +1199,27 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.pc, 0x0105, "branch not taken");
+    }
+
+    #[test]
+    fn bpl() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld a, 0x80
+                bpl 0x01
+                halt
+                halt",
+        );
+        assert_hex!(sys.cpu.pc, 0x0105, "branch taken");
+        sys.test_asm(
+            "
+                ld a, 0x7F
+                bpl 0x01
+                halt
+                halt",
+        );
+        assert_hex!(sys.cpu.pc, 0x0106, "branch not taken");
     }
 
     #[test]

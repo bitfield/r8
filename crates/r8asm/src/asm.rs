@@ -24,8 +24,9 @@ pub const BASE: u16 = 0x0100;
 
 /// Keywords recognised by the assembler.
 pub const KEYWORDS: &[&str] = &[
-    "add", "and", "bcc", "bcs", "beq", "bne", "bra", "call", "clc", "cmp", "data", "dec", "halt",
-    "inc", "jmp", "ld", "lsr", "nop", "org", "pop", "push", "ret", "rti", "sec", "sub", "trap",
+    "add", "and", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cmp", "data",
+    "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "org", "pop", "push", "ret", "rti", "sec",
+    "sub", "trap",
 ];
 
 /// Assembles a given source program.
@@ -80,7 +81,9 @@ impl Assembler {
             "bcc" => self.gen_branch(BranchCc),
             "bcs" => self.gen_branch(BranchCs),
             "beq" => self.gen_branch(BranchEq),
+            "bmi" => self.gen_branch(BranchMi),
             "bne" => self.gen_branch(BranchNe),
+            "bpl" => self.gen_branch(BranchPl),
             "bra" => self.gen_branch(BranchAlways),
             "call" => self.gen_call(),
             "clc" => self.emit_byte(u8::from(Clc)),
@@ -742,7 +745,9 @@ impl Iterator for Disassembler<'_> {
                 BranchCc => format!("bcc {}", self.format_byte()),
                 BranchCs => format!("bcs {}", self.format_byte()),
                 BranchEq => format!("beq {}", self.format_byte()),
+                BranchMi => format!("bmi {}", self.format_byte()),
                 BranchNe => format!("bne {}", self.format_byte()),
+                BranchPl => format!("bpl {}", self.format_byte()),
                 Call => format!("call {}", self.format_word()),
                 Clc => "clc".into(),
                 Cmp(reg) => format!("cmp {reg}, {}", self.format_op_for_reg(reg)),
@@ -1481,7 +1486,9 @@ mod tests {
             ("bcc 0x10", &[u8::from(BranchCc), 0x10]),
             ("bcs 0x10", &[u8::from(BranchCs), 0x10]),
             ("beq 0xF0", &[u8::from(BranchEq), 0xF0]),
+            ("bmi 0xF0", &[u8::from(BranchMi), 0xF0]),
             ("bne 0x01", &[u8::from(BranchNe), 0x01]),
+            ("bpl 0x01", &[u8::from(BranchPl), 0x01]),
             ("bra 0x99", &[u8::from(BranchAlways), 0x99]),
             ("call 0xBEEE", &[u8::from(Call), 0xEE, 0xBE]),
             ("clc", &[u8::from(Clc)]),
@@ -1545,7 +1552,9 @@ mod tests {
             "bcs 0x1000",
             "beq UNDEFINED_LABEL",
             "beq",
+            "bmi",
             "bne 0x1000",
+            "bpl a",
             "bogus",
             "bra a",
             "call 0x01",
