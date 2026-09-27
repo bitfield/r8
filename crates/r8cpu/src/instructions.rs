@@ -81,6 +81,8 @@ pub enum InstructionKind {
     StoreIndexed,
     /// Store a register value at an indirect address in another register.
     StoreIndirect,
+    /// Store an immediate value at an indirect address in a register.
+    StoreIndirectImm,
     /// Subtract with carry.
     Sub(Reg),
     /// Trap with a specified code.
@@ -131,6 +133,7 @@ impl Display for InstructionKind {
                 StoreDirect(reg) => format!("ld NN, {reg}"),
                 StoreIndexed => "ld (RR+N), R".to_owned(),
                 StoreIndirect => "ld (RR), R".to_owned(),
+                StoreIndirectImm => "ld (RR), N".to_owned(),
                 Sub(reg) => format!("sub {reg}, N"),
                 Trap => "trap T".to_owned(),
             }
@@ -159,6 +162,7 @@ impl TryFrom<u8> for InstructionKind {
             0x1F => LdIndexed,
             0x20..=0x27 => StoreDirect(reg?),
             0x28 => StoreIndirect,
+            0x29 => StoreIndirectImm,
             0x2F => StoreIndexed,
             0x30..=0x3C => Inc(reg?),
             0x3D => IncIndirect,
@@ -229,6 +233,7 @@ impl From<InstructionKind> for u8 {
             StoreDirect(reg) => 0x20 | u8::from(reg),
             StoreIndexed => 0x2F,
             StoreIndirect => 0x28,
+            StoreIndirectImm => 0x29,
             Sub(reg) => 0x60 | u8::from(reg),
             Trap => 0xF9,
         }
@@ -253,7 +258,8 @@ impl InstructionKind {
                     One
                 }
             }
-            Call | DecMem | IncMem | Jmp | LdIndexed | StoreDirect(_) | StoreIndexed => Two,
+            Call | DecMem | IncMem | Jmp | LdIndexed | StoreDirect(_) | StoreIndexed
+            | StoreIndirectImm => Two,
         }
     }
 }

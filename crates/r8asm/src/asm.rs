@@ -409,7 +409,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a `ld R, N`, `ld R1, R2`, `ld R, (RR)` or `ld R, (RR+N)` instruction.
+    /// Generates a `ld` instruction.
     ///
     /// # Errors
     ///
@@ -566,7 +566,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a `ld (RR), R` or `ld (RR+N), R` instruction.
+    /// Generates a `ld (RR), R`, `ld (RR), N`, or `ld (RR+N), R` instruction.
     ///
     /// # Errors
     ///
@@ -577,9 +577,19 @@ impl Assembler {
         match self.next_token()? {
             ParenClose => {
                 self.expect(&Comma)?;
-                let source = self.expect_reg8()?;
-                self.emit_byte(u8::from(StoreIndirect))?;
-                self.emit_byte(u8::from(RegToReg { source, target }))?;
+                match self.next_token()? {
+                    ByteLiteral(value) => {
+                        self.emit_byte(u8::from(StoreIndirectImm))?;
+                        self.emit_byte(u8::from(target))?;
+                        self.emit_byte(value)?;
+                    }
+                    Register(source) if !source.is16() => {
+                        self.emit_byte(u8::from(StoreIndirect))?;
+                        self.emit_byte(u8::from(RegToReg { source, target }))?;
+                    }
+                    Register(reg) => bail!("expected 8-bit register name, got '{reg}'"),
+                    other => bail!("expected register or immediate value, got {other}"),
+                }
             }
             Plus => {
                 let index = match self.next_token()? {
@@ -775,6 +785,7 @@ impl Iterator for Disassembler<'_> {
                 StoreDirect(reg) => format!("ld {}, {reg}", self.format_word()),
                 StoreIndexed => self.format_store_indexed(),
                 StoreIndirect => self.format_store_indirect(),
+                StoreIndirectImm => self.format_store_indirect_imm(),
                 Sub(reg) => format!("sub {reg}, {}", self.format_byte()),
                 Trap => format!("trap {}", self.format_byte()),
             }
@@ -878,6 +889,17 @@ impl<'code> Disassembler<'code> {
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
             format!("ld ({target}), {source}")
+        } else {
+            "??? (no operand)".to_owned()
+        }
+    }
+
+    /// Disassembles a `ld (RR), N` instruction.
+    fn format_store_indirect_imm(&mut self) -> String {
+        if let (Some(&reg), Some(byte)) = (self.code.next(), self.code.next())
+            && let Ok(target) = Reg::try_from(reg)
+        {
+            format!("ld ({target}), {byte:#04X}")
         } else {
             "??? (no operand)".to_owned()
         }
@@ -1504,6 +1526,7 @@ mod tests {
             ("inc a", &[u8::from(Inc(A))]),
             ("inc ef", &[u8::from(Inc(EF))]),
             ("jmp 0x1234", &[u8::from(Jmp), 0x34, 0x12]),
+            ("ld (cd), 0xBA", &[u8::from(StoreIndirectImm), 0x09, 0xBA]),
             ("ld (ef), a", &[u8::from(StoreIndirect), 0x0A]),
             ("ld (sp+0x01), b", &[u8::from(StoreIndexed), 0x1C, 0x01]),
             ("ld 0x00AF, h", &[u8::from(StoreDirect(H)), 0xAF, 0x00]),
@@ -1580,6 +1603,7 @@ mod tests {
             "jmp ab",
             "jmp 0x01",
             "ld (0x0), b",
+            "ld (ab), 0xFFFF",
             "ld (cd+a), b",
             "ld 0x0000",
             "ld 0x0000, ",

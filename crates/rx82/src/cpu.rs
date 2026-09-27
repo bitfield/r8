@@ -334,6 +334,7 @@ impl Cpu {
             StoreDirect(reg) => self.store_direct(reg, bus),
             StoreIndexed => self.store_indexed(bus),
             StoreIndirect => self.store_indirect(bus),
+            StoreIndirectImm => self.store_indirect_imm(bus),
             Sub(reg) => self.sub(reg, self.op_lo),
             Trap => self.trap(self.op_lo, bus),
             Nop | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe | BranchPl => {}
@@ -543,6 +544,16 @@ impl Cpu {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {
                 bus.write_mem(self.regs.get16(target), self.regs.get(source));
+            }
+            _ => self.trap(TRAP_ILLEGAL, bus),
+        }
+    }
+
+    /// Executes a `ld (RR), N` instruction.
+    pub fn store_indirect_imm(&mut self, bus: &mut Bus) {
+        match Reg::try_from(self.op_lo) {
+            Ok(target) if target.is16() => {
+                bus.write_mem(self.regs.get16(target), self.op_hi);
             }
             _ => self.trap(TRAP_ILLEGAL, bus),
         }
@@ -2156,6 +2167,19 @@ mod tests {
                 ld ef, 0xBABE
                 ld a, 0xFF
                 ld (ef), a
+                halt",
+        );
+        let value = sys.mem.get(0xBABE);
+        assert_hex!(value, 0xFF, "wrong mem value");
+    }
+
+    #[test]
+    fn store_indirect_imm() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld ef, 0xBABE
+                ld (ef), 0xFF
                 halt",
         );
         let value = sys.mem.get(0xBABE);
