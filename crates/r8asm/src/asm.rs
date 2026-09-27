@@ -227,7 +227,7 @@ impl Assembler {
         let reg = match self.next_token()? {
             Register(reg) if !reg.is16() => reg,
             Register(reg) => bail!("expected 8-bit register name, got '{reg}'"),
-            other => bail!("expected register name, got {other}"),
+            other => bail!("expected register name, got '{other}'"),
         };
         Ok(reg)
     }
@@ -240,11 +240,11 @@ impl Assembler {
     /// * Missing comma.
     /// * Missing or mis-sized operand.
     pub fn gen_add(&mut self) -> Result<()> {
-        let reg = self.expect_reg8()?;
+        let reg = self.expect_reg()?;
         self.expect(&Comma)?;
         self.emit_byte(u8::from(Add(reg)))?;
-        let op = self.expect_op_for_reg(reg)?;
-        for byte in op {
+        let operand = self.expect_op_for_reg(reg)?;
+        for byte in operand {
             self.emit_byte(byte)?;
         }
         Ok(())
@@ -261,8 +261,8 @@ impl Assembler {
         let reg = self.expect_reg8()?;
         self.expect(&Comma)?;
         self.emit_byte(u8::from(And(reg)))?;
-        let op = self.expect_op_for_reg(reg)?;
-        for byte in op {
+        let operand = self.expect_op_for_reg(reg)?;
+        for byte in operand {
             self.emit_byte(byte)?;
         }
         Ok(())
@@ -307,8 +307,8 @@ impl Assembler {
         let reg = self.expect_reg()?;
         self.expect(&Comma)?;
         self.emit_byte(u8::from(Cmp(reg)))?;
-        let op = self.expect_op_for_reg(reg)?;
-        for byte in op {
+        let operand = self.expect_op_for_reg(reg)?;
+        for byte in operand {
             self.emit_byte(byte)?;
         }
         Ok(())
@@ -619,8 +619,8 @@ impl Assembler {
         let reg = self.expect_reg8()?;
         self.expect(&Comma)?;
         self.emit_byte(u8::from(Sub(reg)))?;
-        let op = self.expect_op_for_reg(reg)?;
-        for byte in op {
+        let operand = self.expect_op_for_reg(reg)?;
+        for byte in operand {
             self.emit_byte(byte)?;
         }
         Ok(())
@@ -749,7 +749,7 @@ impl Iterator for Disassembler<'_> {
         let &opcode = self.code.next()?;
         Some(if let Ok(ins) = InstructionKind::try_from(opcode) {
             match ins {
-                Add(reg) => format!("add {reg}, {}", self.format_byte()),
+                Add(reg) => format!("add {reg}, {}", self.format_op_for_reg(reg)),
                 And(reg) => format!("and {reg}, {}", self.format_byte()),
                 BranchAlways => format!("bra {}", self.format_byte()),
                 BranchCc => format!("bcc {}", self.format_byte()),
@@ -1504,6 +1504,7 @@ mod tests {
         let cases: &[(&str, &[u8])] = &[
             ("", &[]),
             ("add a, 0x01", &[u8::from(Add(A)), 0x01]),
+            ("add sp, 0x0104", &[u8::from(Add(SP)), 0x04, 0x01]),
             ("and a, 0x01", &[u8::from(And(A)), 0x01]),
             ("bcc 0x10", &[u8::from(BranchCc), 0x10]),
             ("bcs 0x10", &[u8::from(BranchCs), 0x10]),
@@ -1564,7 +1565,8 @@ mod tests {
             "add",
             "add a",
             "add a, cd",
-            "add ab, 0xFFFF",
+            "add ab, 0xFF",
+            "add sp",
             "and",
             "and ab, 0xFF",
             "and cd, 0xC0DE",

@@ -215,7 +215,7 @@ impl Device for Cpu {
 }
 
 impl Cpu {
-    /// Add with carry.
+    /// Add with carry to 8-bit register.
     pub fn add(&mut self, reg: Reg, addend: u8) {
         let augend = self.regs.get(reg);
         let (result1, carry1) = augend.overflowing_add(addend);
@@ -224,6 +224,17 @@ impl Cpu {
         self.flags.carry = carry1 || carry2;
         self.regs.set(reg, result2);
         self.flags.update(result2);
+    }
+
+    /// Add with carry to 16-bit register.
+    pub fn add16(&mut self, reg: Reg, addend: u16) {
+        let augend = self.regs.get16(reg);
+        let (result1, carry1) = augend.overflowing_add(addend);
+        let carry_in = u16::from(self.flags.carry);
+        let (result2, carry2) = result1.overflowing_add(carry_in);
+        self.flags.carry = carry1 || carry2;
+        self.regs.set16(reg, result2);
+        self.flags.update16(result2);
     }
 
     /// Bitwise AND.
@@ -299,6 +310,7 @@ impl Cpu {
     pub fn execute(&mut self, ins: InstructionKind, bus: &mut Bus) {
         use InstructionKind::*;
         match ins {
+            Add(reg) if reg.is16() => self.add16(reg, self.op()),
             Add(reg) => self.add(reg, self.op_lo),
             And(reg) => self.and(reg, self.op_lo),
             BranchAlways => self.branch(self.op_lo),
@@ -1066,6 +1078,17 @@ mod tests {
                 if case.output == 0 { "set" } else { "cleared" }
             );
         }
+    }
+
+    #[test]
+    fn add_sp() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                add sp, 0x0A01
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(SP), 0x0A01, "wrong SP");
     }
 
     #[test]

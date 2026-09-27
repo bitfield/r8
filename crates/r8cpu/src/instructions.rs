@@ -170,7 +170,7 @@ impl TryFrom<u8> for InstructionKind {
             0x40..=0x4C => Dec(reg?),
             0x4D => DecIndirect,
             0x4E => DecMem,
-            0x50..=0x57 => Add(reg?),
+            0x50..=0x5C => Add(reg?),
             0x60..=0x67 => Sub(reg?),
             0x70..=0x7B => Cmp(reg?),
             0x80..=0x87 => And(reg?),
@@ -248,10 +248,10 @@ impl InstructionKind {
         match *self {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
-            Add(_) | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
-            | BranchNe | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr(_)
+            And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe
+            | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr(_)
             | StoreIndirect | Sub(_) | Trap => One,
-            Cmp(reg) | LdImm(reg) => {
+            Add(reg) | Cmp(reg) | LdImm(reg) => {
                 if reg.is16() {
                     Two
                 } else {
