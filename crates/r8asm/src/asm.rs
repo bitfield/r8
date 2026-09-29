@@ -518,7 +518,8 @@ impl Assembler {
     /// * Syntax errors.
     pub fn gen_lsr(&mut self) -> Result<()> {
         let target = self.expect_reg8()?;
-        self.emit_byte(u8::from(Lsr(target)))?;
+        self.emit_byte(u8::from(Lsr))?;
+        self.emit_byte(u8::from(target))?;
         self.expect(&Comma)?;
         match self.next_token()? {
             ByteLiteral(shift) => self.emit_byte(shift),
@@ -773,7 +774,7 @@ impl Iterator for Disassembler<'_> {
                 LdImm(reg) => format!("ld {reg}, {}", self.format_op_for_reg(reg)),
                 LdIndirect => self.format_ld_indirect(),
                 LdReg => self.format_ld_reg(),
-                Lsr(reg) => format!("lsr {reg}, {}", self.format_byte()),
+                Lsr => self.format_lsr(),
                 Nop => "nop".into(),
                 Pop(reg) => format!("pop {reg}"),
                 PopPS => "pop ps".into(),
@@ -808,11 +809,11 @@ impl<'code> Disassembler<'code> {
 
     /// Dissassembles a `dec (RR)` instruction.
     fn format_dec_indirect(&mut self) -> String {
-        if let Some(&encoded_reg) = self.code.next()
-            && let Ok(reg) = Reg::try_from(encoded_reg)
-            && reg.is16()
+        if let Some(&target_spec) = self.code.next()
+            && let Ok(target) = Reg::try_from(target_spec)
+            && target.is16()
         {
-            format!("dec ({reg})")
+            format!("dec ({target})")
         } else {
             "??? (no operand)".to_owned()
         }
@@ -820,11 +821,11 @@ impl<'code> Disassembler<'code> {
 
     /// Dissassembles an `inc (RR)` instruction.
     fn format_inc_indirect(&mut self) -> String {
-        if let Some(&encoded_reg) = self.code.next()
-            && let Ok(reg) = Reg::try_from(encoded_reg)
-            && reg.is16()
+        if let Some(&target_spec) = self.code.next()
+            && let Ok(target) = Reg::try_from(target_spec)
+            && target.is16()
         {
-            format!("inc ({reg})")
+            format!("inc ({target})")
         } else {
             "??? (no operand)".to_owned()
         }
@@ -858,6 +859,17 @@ impl<'code> Disassembler<'code> {
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
             format!("ld {target}, {source}")
+        } else {
+            "??? (no operand)".to_owned()
+        }
+    }
+
+    /// Disassembles a `lsr R, S` instruction.
+    fn format_lsr(&mut self) -> String {
+        if let (Some(&target_spec), Some(shift)) = (self.code.next(), self.code.next())
+            && let Ok(target) = Reg::try_from(target_spec)
+        {
+            format!("lsr {target}, {shift:#04X}")
         } else {
             "??? (no operand)".to_owned()
         }
@@ -1538,7 +1550,7 @@ mod tests {
             ("ld cd, 0xBEEF", &[u8::from(LdImm(CD)), 0xEF, 0xBE]),
             ("ld sp, 0x010F", &[u8::from(LdImm(SP)), 0x0F, 0x01]),
             ("ld h, (sp+0x01)", &[u8::from(LdIndexed), 0xC7, 0x01]),
-            ("lsr a, 0x04", &[u8::from(Lsr(A)), 0x04]),
+            ("lsr a, 0x04", &[u8::from(Lsr), u8::from(A), 0x04]),
             ("nop", &[u8::from(Nop)]),
             ("pop e", &[u8::from(Pop(E))]),
             ("pop ps", &[u8::from(PopPS)]),

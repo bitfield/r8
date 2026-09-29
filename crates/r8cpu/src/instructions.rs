@@ -56,8 +56,8 @@ pub enum InstructionKind {
     LdIndirect,
     /// Load a register from another register.
     LdReg,
-    /// Logical shift right.
-    Lsr(Reg),
+    /// Logical shift right immediate.
+    Lsr,
     /// No operation.
     Nop,
     /// Pop a register value from the stack.
@@ -121,7 +121,7 @@ impl Display for InstructionKind {
                 LdImm(reg) => format!("ld {reg}, {}", if reg.is16() { "NN" } else { "N" }),
                 LdIndirect => "ld R, (RR)".to_owned(),
                 LdReg => "ld R1, R2".to_owned(),
-                Lsr(reg) => format!("lsr {reg}, S"),
+                Lsr => "lsr R, S".to_owned(),
                 Nop => "nop".to_owned(),
                 Pop(reg) => format!("pop {reg}"),
                 PopPS => "pop ps".to_owned(),
@@ -145,10 +145,7 @@ impl TryFrom<u8> for InstructionKind {
     type Error = anyhow::Error;
 
     fn try_from(opcode: u8) -> Result<Self, Self::Error> {
-        // Register ID for instructions with X0.. opcodes.
         let reg = Reg::try_from(opcode & 0x0F);
-        // Register ID for instructions with X8..XF opcodes.
-        let reg2 = Reg::try_from(opcode.wrapping_sub(8) & 0x0F);
         Ok(match opcode {
             0x00 => Halt,
             0x01 => Nop,
@@ -174,7 +171,7 @@ impl TryFrom<u8> for InstructionKind {
             0x60..=0x67 => Sub(reg?),
             0x70..=0x7B => Cmp(reg?),
             0x80..=0x87 => And(reg?),
-            0xA8..=0xAF => Lsr(reg2?),
+            0x8B => Lsr,
             0xD0..=0xDB => Push(reg?),
             0xDC => PushPS,
             0xE0..=0xEB => Pop(reg?),
@@ -221,7 +218,7 @@ impl From<InstructionKind> for u8 {
             LdImm(reg) => 0x10 | u8::from(reg),
             LdIndirect => 0x1D,
             LdReg => 0x1E,
-            Lsr(reg) => 0xA8 | u8::from(reg),
+            Lsr => 0x8B,
             Nop => 0x01,
             Pop(reg) => 0xE0 | u8::from(reg),
             PopPS => 0xEC,
@@ -249,8 +246,8 @@ impl InstructionKind {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
             And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe
-            | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr(_)
-            | StoreIndirect | Sub(_) | Trap => One,
+            | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | StoreIndirect
+            | Sub(_) | Trap => One,
             Add(reg) | Cmp(reg) | LdImm(reg) => {
                 if reg.is16() {
                     Two
@@ -258,7 +255,7 @@ impl InstructionKind {
                     One
                 }
             }
-            Call | DecMem | IncMem | Jmp | LdIndexed | StoreDirect(_) | StoreIndexed
+            Call | DecMem | IncMem | Jmp | LdIndexed | Lsr | StoreDirect(_) | StoreIndexed
             | StoreIndirectImm => Two,
         }
     }

@@ -335,7 +335,7 @@ impl Cpu {
             LdImm(reg) => self.ld_imm(reg),
             LdIndirect => self.ld_indirect(bus),
             LdReg => self.ld_reg(bus),
-            Lsr(reg) => self.lsr(reg, self.op_lo),
+            Lsr => self.lsr(self.op_lo, self.op_hi, bus),
             Pop(reg) => self.pop(reg, bus),
             PopPS => self.pop_ps(bus),
             Push(reg) => self.push(reg, bus),
@@ -440,7 +440,11 @@ impl Cpu {
     }
 
     /// Executes an `lsr R, S` instruction.
-    pub fn lsr(&mut self, reg: Reg, mut bits: u8) {
+    pub fn lsr(&mut self, reg_spec: u8, mut bits: u8, bus: &mut Bus) {
+        let Ok(reg) = Reg::try_from(reg_spec) else {
+            self.trap(TRAP_ILLEGAL, bus);
+            return;
+        };
         bits = bits.clamp(1, 8);
         let mut value = self
             .regs
@@ -1921,7 +1925,7 @@ mod tests {
         for case in cases {
             sys.cpu.flags.carry = case.carry_in;
             sys.cpu.regs.set(A, case.input);
-            sys.test_prog(&[u8::from(Lsr(A)), case.shift]);
+            sys.test_prog(&[u8::from(Lsr), u8::from(A), case.shift]);
             assert_hex!(
                 sys.cpu.regs.get(A),
                 case.output,
