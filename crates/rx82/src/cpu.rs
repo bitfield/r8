@@ -336,6 +336,7 @@ impl Cpu {
             LdIndirect => self.ld_indirect(bus),
             LdReg => self.ld_reg(bus),
             Lsr => self.lsr(self.op_lo, self.op_hi, bus),
+            LsrReg => self.lsr_reg(self.op_lo, bus),
             Pop(reg) => self.pop(reg, bus),
             PopPS => self.pop_ps(bus),
             Push(reg) => self.push(reg, bus),
@@ -455,6 +456,40 @@ impl Cpu {
         self.regs.set(reg, value);
         self.flags.update(value);
         self.flags.carry = last_bit == 1;
+    }
+
+    /// Executes an `lsr R1, R2` instruction.
+    pub fn lsr_reg(&mut self, regs: u8, bus: &mut Bus) {
+        let (target, shift) = match RegToReg::try_from(regs) {
+            Ok(RegToReg { source, target }) if !source.is16() => {
+                (target, self.regs.get(source).clamp(1, 8))
+            }
+            _ => {
+                self.trap(TRAP_ILLEGAL, bus);
+                return;
+            }
+        };
+        if target.is16() {
+            let mut value = self
+                .regs
+                .get16(target)
+                .unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
+            let last_bit = value & 1;
+            value = value.unbounded_shr(1);
+            self.regs.set16(target, value);
+            self.flags.update16(value);
+            self.flags.carry = last_bit == 1;
+        } else {
+            let mut value = self
+                .regs
+                .get(target)
+                .unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
+            let last_bit = value & 1;
+            value = value.unbounded_shr(1);
+            self.regs.set(target, value);
+            self.flags.update(value);
+            self.flags.carry = last_bit == 1;
+        }
     }
 
     /// Returns the 16-bit value of the two operand registers.
@@ -1957,6 +1992,19 @@ mod tests {
                 if case.output == 0 { "set" } else { "cleared" }
             );
         }
+    }
+
+    #[test]
+    fn lsr_reg() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld ab, 0x0100
+                ld c, 0x01
+                lsr ab, c
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0080, "wrong AB");
     }
 
     #[test]

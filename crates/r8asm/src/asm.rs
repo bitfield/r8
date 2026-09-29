@@ -511,19 +511,26 @@ impl Assembler {
         self.emit_byte(u8::from(RegToReg { source, target }))
     }
 
-    /// Generates an `lsr R, S` instruction.
+    /// Generates an `lsr` instruction.
     ///
     /// # Errors
     ///
     /// * Syntax errors.
     pub fn gen_lsr(&mut self) -> Result<()> {
-        let target = self.expect_reg8()?;
-        self.emit_byte(u8::from(Lsr))?;
-        self.emit_byte(u8::from(target))?;
+        let target = self.expect_reg()?;
         self.expect(&Comma)?;
         match self.next_token()? {
-            ByteLiteral(shift) => self.emit_byte(shift),
-            other => bail!("expected shift count, got {other}"),
+            ByteLiteral(shift) => {
+                self.emit_byte(u8::from(Lsr))?;
+                self.emit_byte(u8::from(target))?;
+                self.emit_byte(shift)
+            }
+            Register(source) if !source.is16() => {
+                self.emit_byte(u8::from(LsrReg))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))?;
+                Ok(())
+            }
+            other => bail!("expected shift count or 8-bit register name, got '{other}'"),
         }
     }
 
@@ -775,6 +782,7 @@ impl Iterator for Disassembler<'_> {
                 LdIndirect => self.format_ld_indirect(),
                 LdReg => self.format_ld_reg(),
                 Lsr => self.format_lsr(),
+                LsrReg => self.format_lsr_reg(),
                 Nop => "nop".into(),
                 Pop(reg) => format!("pop {reg}"),
                 PopPS => "pop ps".into(),
@@ -870,6 +878,17 @@ impl<'code> Disassembler<'code> {
             && let Ok(target) = Reg::try_from(target_spec)
         {
             format!("lsr {target}, {shift:#04X}")
+        } else {
+            "??? (no operand)".to_owned()
+        }
+    }
+
+    /// Disassembles a `lsr R1, R2` instruction.
+    fn format_lsr_reg(&mut self) -> String {
+        if let Some(&regs) = self.code.next()
+            && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
+        {
+            format!("lsr {target}, {source}")
         } else {
             "??? (no operand)".to_owned()
         }
@@ -1551,6 +1570,7 @@ mod tests {
             ("ld sp, 0x010F", &[u8::from(LdImm(SP)), 0x0F, 0x01]),
             ("ld h, (sp+0x01)", &[u8::from(LdIndexed), 0xC7, 0x01]),
             ("lsr a, 0x04", &[u8::from(Lsr), u8::from(A), 0x04]),
+            ("lsr ab, c", &[u8::from(LsrReg), 0x28]),
             ("nop", &[u8::from(Nop)]),
             ("pop e", &[u8::from(Pop(E))]),
             ("pop ps", &[u8::from(PopPS)]),
@@ -1641,7 +1661,8 @@ mod tests {
             "ld",
             "lsr",
             "lsr a",
-            "lsr ab, 0x02",
+            "lsr ab, 0x0002",
+            "lsr a, cd",
             "nop\norg 0x0000",
             "org 0xFFFF\nld a, 0x01",
             "pop",

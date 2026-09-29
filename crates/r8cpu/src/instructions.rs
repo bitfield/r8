@@ -58,6 +58,8 @@ pub enum InstructionKind {
     LdReg,
     /// Logical shift right immediate.
     Lsr,
+    /// Logical shift right register.
+    LsrReg,
     /// No operation.
     Nop,
     /// Pop a register value from the stack.
@@ -122,6 +124,7 @@ impl Display for InstructionKind {
                 LdIndirect => "ld R, (RR)".to_owned(),
                 LdReg => "ld R1, R2".to_owned(),
                 Lsr => "lsr R, S".to_owned(),
+                LsrReg => "lsr R1, R2".to_owned(),
                 Nop => "nop".to_owned(),
                 Pop(reg) => format!("pop {reg}"),
                 PopPS => "pop ps".to_owned(),
@@ -171,6 +174,7 @@ impl TryFrom<u8> for InstructionKind {
             0x60..=0x67 => Sub(reg?),
             0x70..=0x7B => Cmp(reg?),
             0x80..=0x87 => And(reg?),
+            0x8A => LsrReg,
             0x8B => Lsr,
             0xD0..=0xDB => Push(reg?),
             0xDC => PushPS,
@@ -219,6 +223,7 @@ impl From<InstructionKind> for u8 {
             LdIndirect => 0x1D,
             LdReg => 0x1E,
             Lsr => 0x8B,
+            LsrReg => 0x8A,
             Nop => 0x01,
             Pop(reg) => 0xE0 | u8::from(reg),
             PopPS => 0xEC,
@@ -246,8 +251,8 @@ impl InstructionKind {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
             And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe
-            | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | StoreIndirect
-            | Sub(_) | Trap => One,
+            | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | LsrReg
+            | StoreIndirect | Sub(_) | Trap => One,
             Add(reg) | Cmp(reg) | LdImm(reg) => {
                 if reg.is16() {
                     Two
