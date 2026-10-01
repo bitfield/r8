@@ -48,7 +48,7 @@ pub enum InstructionKind {
     /// Far jump.
     Jmp,
     /// Load a register with an immediate operand.
-    LdImm(Reg),
+    Ld(Reg),
     /// Load a register from an indirect address in another register, indexed by an
     /// immediate value.
     LdIndexed,
@@ -77,7 +77,7 @@ pub enum InstructionKind {
     /// Set carry flag.
     Sec,
     /// Store a register value at an immediate address.
-    StoreDirect(Reg),
+    Store(Reg),
     /// Store a register at an indirect address in another register, indexed by an
     /// immediate value.
     StoreIndexed,
@@ -120,7 +120,7 @@ impl Display for InstructionKind {
                 IncMem => "inc (NN)".to_owned(),
                 Jmp => "jmp NN".to_owned(),
                 LdIndexed => "ld R, (RR+N)".to_owned(),
-                LdImm(reg) => format!("ld {reg}, {}", if reg.is16() { "NN" } else { "N" }),
+                Ld(reg) => format!("ld {reg}, {}", if reg.is16() { "NN" } else { "N" }),
                 LdIndirect => "ld R, (RR)".to_owned(),
                 LdReg => "ld R1, R2".to_owned(),
                 Lsr => "lsr R, S".to_owned(),
@@ -133,7 +133,7 @@ impl Display for InstructionKind {
                 Ret => "ret".to_owned(),
                 Rti => "rti".to_owned(),
                 Sec => "sec".to_owned(),
-                StoreDirect(reg) => format!("ld NN, {reg}"),
+                Store(reg) => format!("ld NN, {reg}"),
                 StoreIndexed => "ld (RR+N), R".to_owned(),
                 StoreIndirect => "ld (RR), R".to_owned(),
                 StoreIndirectImm => "ld (RR), N".to_owned(),
@@ -156,11 +156,11 @@ impl TryFrom<u8> for InstructionKind {
             0x04 => Clc,
             0x08 => Ret,
             0x09 => Rti,
-            0x10..=0x1C => LdImm(reg?),
+            0x10..=0x1C => Ld(reg?),
             0x1D => LdIndirect,
             0x1E => LdReg,
             0x1F => LdIndexed,
-            0x20..=0x27 => StoreDirect(reg?),
+            0x20..=0x27 => Store(reg?),
             0x28 => StoreIndirect,
             0x29 => StoreIndirectImm,
             0x2F => StoreIndexed,
@@ -171,8 +171,8 @@ impl TryFrom<u8> for InstructionKind {
             0x4D => DecIndirect,
             0x4E => DecMem,
             0x50..=0x5C => Add(reg?),
-            0x60..=0x67 => Sub(reg?),
-            0x70..=0x7B => Cmp(reg?),
+            0x60..=0x6C => Sub(reg?),
+            0x70..=0x7C => Cmp(reg?),
             0x80..=0x87 => And(reg?),
             0x8A => LsrReg,
             0x8B => Lsr,
@@ -219,7 +219,7 @@ impl From<InstructionKind> for u8 {
             IncIndirect => 0x3D,
             IncMem => 0x3E,
             LdIndexed => 0x1F,
-            LdImm(reg) => 0x10 | u8::from(reg),
+            Ld(reg) => 0x10 | u8::from(reg),
             LdIndirect => 0x1D,
             LdReg => 0x1E,
             Lsr => 0x8B,
@@ -232,7 +232,7 @@ impl From<InstructionKind> for u8 {
             Ret => 0x08,
             Rti => 0x09,
             Sec => 0x03,
-            StoreDirect(reg) => 0x20 | u8::from(reg),
+            Store(reg) => 0x20 | u8::from(reg),
             StoreIndexed => 0x2F,
             StoreIndirect => 0x28,
             StoreIndirectImm => 0x29,
@@ -253,14 +253,14 @@ impl InstructionKind {
             And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe
             | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr | LsrReg
             | StoreIndirect | Sub(_) | Trap => One,
-            Add(reg) | Cmp(reg) | LdImm(reg) => {
+            Add(reg) | Cmp(reg) | Ld(reg) => {
                 if reg.is16() {
                     Two
                 } else {
                     One
                 }
             }
-            Call | DecMem | IncMem | Jmp | LdIndexed | StoreDirect(_) | StoreIndexed
+            Call | DecMem | IncMem | Jmp | LdIndexed | Store(_) | StoreIndexed
             | StoreIndirectImm => Two,
         }
     }

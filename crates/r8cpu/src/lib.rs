@@ -2,4 +2,5 @@
 
 pub mod flags;
 pub mod instructions;
+pub mod logic;
 pub mod regs;

@@ -437,7 +437,7 @@ impl Assembler {
     ///
     /// * Wrong target register width.
     pub fn gen_ld_imm16(&mut self, target: Reg, word: u16) -> Result<()> {
-        self.emit_byte(u8::from(LdImm(target)))?;
+        self.emit_byte(u8::from(Ld(target)))?;
         self.emit_word(word)
     }
 
@@ -447,7 +447,7 @@ impl Assembler {
     ///
     /// * Wrong target register width.
     pub fn gen_ld_imm8(&mut self, target: Reg, byte: u8) -> Result<()> {
-        self.emit_byte(u8::from(LdImm(target)))?;
+        self.emit_byte(u8::from(Ld(target)))?;
         self.emit_byte(byte)
     }
 
@@ -457,7 +457,7 @@ impl Assembler {
     ///
     /// * If the target is not a 16-bit register.
     pub fn gen_ld_imm_label(&mut self, target: Reg, label: &str) -> Result<()> {
-        self.emit_byte(u8::from(LdImm(target)))?;
+        self.emit_byte(u8::from(Ld(target)))?;
         self.emit_word(self.resolve_label(label)?)
     }
 
@@ -567,7 +567,7 @@ impl Assembler {
     pub fn gen_store_direct(&mut self, addr: u16) -> Result<()> {
         self.expect(&Comma)?;
         let reg = self.expect_reg8()?;
-        self.emit_byte(u8::from(StoreDirect(reg)))?;
+        self.emit_byte(u8::from(Store(reg)))?;
         self.emit_word(addr)?;
         Ok(())
     }
@@ -622,7 +622,7 @@ impl Assembler {
     /// * Missing comma.
     /// * Missing or mis-sized operand.
     pub fn gen_sub(&mut self) -> Result<()> {
-        let reg = self.expect_reg8()?;
+        let reg = self.expect_reg()?;
         self.expect(&Comma)?;
         self.emit_byte(u8::from(Sub(reg)))?;
         let operand = self.expect_op_for_reg(reg)?;
@@ -776,10 +776,10 @@ impl Iterator for Disassembler<'_> {
                 IncMem => format!("inc ({})", self.format_word()),
                 Jmp => format!("jmp {}", self.format_word()),
                 LdIndexed => self.format_ld_indexed(),
-                LdImm(reg) => format!("ld {reg}, {}", self.format_op_for_reg(reg)),
+                Ld(reg) => format!("ld {reg}, {}", self.format_op_for_reg(reg)),
                 LdIndirect => self.format_ld_indirect(),
                 LdReg => self.format_ld_reg(),
-                Lsr => self.format_lsr(),
+                Lsr => self.format_lsr_imm(),
                 LsrReg => self.format_lsr_reg(),
                 Nop => "nop".into(),
                 Pop(reg) => format!("pop {reg}"),
@@ -789,11 +789,11 @@ impl Iterator for Disassembler<'_> {
                 Ret => "ret".into(),
                 Rti => "rti".into(),
                 Sec => "sec".into(),
-                StoreDirect(reg) => format!("ld {}, {reg}", self.format_word()),
+                Store(reg) => format!("ld {}, {reg}", self.format_word()),
                 StoreIndexed => self.format_store_indexed(),
                 StoreIndirect => self.format_store_indirect(),
                 StoreIndirectImm => self.format_store_indirect_imm(),
-                Sub(reg) => format!("sub {reg}, {}", self.format_byte()),
+                Sub(reg) => format!("sub {reg}, {}", self.format_op_for_reg(reg)),
                 Trap => format!("trap {}", self.format_byte()),
             }
         } else {
@@ -871,7 +871,7 @@ impl<'code> Disassembler<'code> {
     }
 
     /// Disassembles a `lsr R, S` instruction.
-    fn format_lsr(&mut self) -> String {
+    fn format_lsr_imm(&mut self) -> String {
         if let Some(&encoded) = self.code.next()
             && let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(encoded)
         {
@@ -1280,7 +1280,7 @@ mod tests {
             ld cd, LABEL
 ";
         let generated = assemble_with_debug(source).unwrap();
-        assert_asm!(source, generated, &[u8::from(LdImm(Reg::CD)), 0x00, 0x01]);
+        assert_asm!(source, generated, &[u8::from(Ld(Reg::CD)), 0x00, 0x01]);
     }
 
     #[test]
@@ -1310,7 +1310,7 @@ mod tests {
     fn assembler_ignores_comments() {
         let source = "ld a, 0xFF ; loop count";
         let generated = assemble_with_debug(source).unwrap();
-        let object = &[u8::from(LdImm(Reg::A)), 0xFF];
+        let object = &[u8::from(Ld(Reg::A)), 0xFF];
         assert_asm!(source, generated, object);
     }
 
@@ -1320,7 +1320,7 @@ mod tests {
         let source = "include testdata/include.asm\ninc a";
         let generated = assemble_with_debug(source).unwrap();
         let object = &[
-            u8::from(LdImm(A)),
+            u8::from(Ld(A)),
             0x01,
             u8::from(Dec(A)),
             u8::from(Nop),
@@ -1344,9 +1344,9 @@ mod tests {
 ";
         let generated = assemble_with_debug(source).unwrap();
         let object = &[
-            u8::from(LdImm(Reg::A)),
+            u8::from(Ld(Reg::A)),
             0x06,
-            u8::from(LdImm(Reg::CD)),
+            u8::from(Ld(Reg::CD)),
             0xFF,
             0xFF,
             u8::from(Dec(Reg::CD)),
@@ -1468,7 +1468,7 @@ mod tests {
 ";
         let generated = assemble_with_debug(source).unwrap();
         let object = &[
-            u8::from(LdImm(Reg::A)),
+            u8::from(Ld(Reg::A)),
             0xFF,
             u8::from(BranchAlways),
             0x04,
@@ -1559,13 +1559,13 @@ mod tests {
             ("ld (cd), 0xBA", &[u8::from(StoreIndirectImm), 0x09, 0xBA]),
             ("ld (ef), a", &[u8::from(StoreIndirect), 0x0A]),
             ("ld (sp+0x01), b", &[u8::from(StoreIndexed), 0x1C, 0x01]),
-            ("ld 0x00AF, h", &[u8::from(StoreDirect(H)), 0xAF, 0x00]),
+            ("ld 0x00AF, h", &[u8::from(Store(H)), 0xAF, 0x00]),
             ("ld a, b", &[u8::from(LdReg), 0x10]),
-            ("ld ab, 0x000F", &[u8::from(LdImm(AB)), 0x0F, 0x00]),
+            ("ld ab, 0x000F", &[u8::from(Ld(AB)), 0x0F, 0x00]),
             ("ld b, (cd)", &[u8::from(LdIndirect), 0x91]),
-            ("ld b, 0xFF", &[u8::from(LdImm(B)), 0xFF]),
-            ("ld cd, 0xBEEF", &[u8::from(LdImm(CD)), 0xEF, 0xBE]),
-            ("ld sp, 0x010F", &[u8::from(LdImm(SP)), 0x0F, 0x01]),
+            ("ld b, 0xFF", &[u8::from(Ld(B)), 0xFF]),
+            ("ld cd, 0xBEEF", &[u8::from(Ld(CD)), 0xEF, 0xBE]),
+            ("ld sp, 0x010F", &[u8::from(Ld(SP)), 0x0F, 0x01]),
             ("ld h, (sp+0x01)", &[u8::from(LdIndexed), 0xC7, 0x01]),
             ("lsr a, 0x04", &[u8::from(Lsr), 0x40]),
             ("lsr ab, c", &[u8::from(LsrReg), 0x28]),
@@ -1578,6 +1578,7 @@ mod tests {
             ("rti", &[u8::from(Rti)]),
             ("sec", &[u8::from(Sec)]),
             ("sub a, 0x01", &[u8::from(Sub(A)), 0x01]),
+            ("sub cd, 0x0104", &[u8::from(Sub(CD)), 0x04, 0x01]),
             ("trap 0x01", &[u8::from(Trap), 0x01]),
         ];
         for &(source, object) in cases {
@@ -1660,6 +1661,7 @@ mod tests {
             "lsr",
             "lsr a",
             "lsr ab, 0x0002",
+            "lsr ab, cd",
             "lsr a, cd",
             "nop\norg 0x0000",
             "org 0xFFFF\nld a, 0x01",
@@ -1674,7 +1676,7 @@ mod tests {
             "sub",
             "sub a",
             "sub a, cd",
-            "sub ab, 0xFFFF",
+            "sub ab, 0xFF",
             "trap 0x40",
             "trap 0xFF",
             "trap a",

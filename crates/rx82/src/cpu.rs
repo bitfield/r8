@@ -1,6 +1,7 @@
 use r8cpu::{
     flags::Flags,
     instructions::{InstructionKind, Operands},
+    logic::{add, add16, and, and16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, sub, sub16},
     regs::{Reg, RegToReg, Regs, ShiftReg},
 };
 
@@ -115,22 +116,14 @@ impl Device for Cpu {
             }
             ReadData(reg) => {
                 self.op_lo = bus.data;
-                if reg.is16() {
-                    let value = self.op();
-                    self.regs.set16(reg, value);
-                    self.flags.update16(value);
-                } else {
-                    let value = self.op_lo;
-                    self.regs.set(reg, value);
-                    self.flags.update(value);
-                }
+                self.load(reg);
                 FetchOpcode
             }
             ReadDec(addr) => {
-                let mut value = bus.data;
-                value = value.wrapping_sub(1);
-                bus.write_mem(addr, value);
-                self.flags.update(value);
+                let value = bus.data;
+                let result = dec(value);
+                bus.write_mem(addr, result);
+                self.flags.update(result);
                 FetchOpcode
             }
             ReadFlags => {
@@ -140,10 +133,10 @@ impl Device for Cpu {
                 WaitRetLo
             }
             ReadInc(addr) => {
-                let mut value = bus.data;
-                value = value.wrapping_add(1);
-                bus.write_mem(addr, value);
-                self.flags.update(value);
+                let value = bus.data;
+                let result = inc(value);
+                bus.write_mem(addr, result);
+                self.flags.update(result);
                 FetchOpcode
             }
             ReadOp => {
@@ -215,45 +208,52 @@ impl Device for Cpu {
 }
 
 impl Cpu {
-    /// Add with carry to 8-bit register.
-    pub fn add(&mut self, reg: Reg, addend: u8) {
-        let augend = self.regs.get(reg);
-        let (result1, carry1) = augend.overflowing_add(addend);
-        let carry_in = u8::from(self.flags.carry);
-        let (result2, carry2) = result1.overflowing_add(carry_in);
-        self.flags.carry = carry1 || carry2;
-        self.regs.set(reg, result2);
-        self.flags.update(result2);
-    }
-
-    /// Add with carry to 16-bit register.
-    pub fn add16(&mut self, reg: Reg, addend: u16) {
-        let augend = self.regs.get16(reg);
-        let (result1, carry1) = augend.overflowing_add(addend);
-        let carry_in = u16::from(self.flags.carry);
-        let (result2, carry2) = result1.overflowing_add(carry_in);
-        self.flags.carry = carry1 || carry2;
-        self.regs.set16(reg, result2);
-        self.flags.update16(result2);
+    /// Add with carry.
+    pub fn add(&mut self, target: Reg) {
+        if target.is16() {
+            let augend = self.regs.get16(target);
+            let addend = self.op();
+            let (result, carry) = add16(augend, addend, self.flags.carry);
+            self.regs.set16(target, result);
+            self.flags.update16(result);
+            self.flags.carry = carry;
+        } else {
+            let augend = self.regs.get(target);
+            let addend = self.op_lo;
+            let (result, carry) = add(augend, addend, self.flags.carry);
+            self.regs.set(target, result);
+            self.flags.update(result);
+            self.flags.carry = carry;
+        }
     }
 
     /// Bitwise AND.
-    pub fn and(&mut self, reg: Reg, mask: u8) {
-        let value = self.regs.get(reg);
-        let result = value & mask;
-        self.regs.set(reg, result);
-        self.flags.update(result);
+    pub fn and_imm(&mut self, target: Reg) {
+        if target.is16() {
+            let input = self.regs.get16(target);
+            let mask = self.op();
+            let result = and16(input, mask);
+            self.regs.set16(target, result);
+            self.flags.update16(result);
+        } else {
+            let input = self.regs.get(target);
+            let mask = self.op_lo;
+            let result = and(input, mask);
+            self.regs.set(target, result);
+            self.flags.update(result);
+        }
     }
 
     /// Branches to PC+`dis`.
     #[expect(clippy::cast_possible_wrap, reason = "i8 to u16 is sound")]
     #[expect(clippy::cast_sign_loss, reason = "okay with wrapping_add")]
-    pub fn branch(&mut self, dis: u8) {
-        self.pc = self.pc.wrapping_add(dis as i8 as u16); // sign-extend displacement
+    pub fn branch(&mut self) {
+        self.pc = self.pc.wrapping_add(self.op_lo as i8 as u16); // sign-extend displacement
     }
 
     /// Calls the subroutine at `addr`, pushing the return address on the stack.
-    pub fn call(&mut self, addr: u16, bus: &mut Bus) {
+    pub fn call(&mut self, bus: &mut Bus) {
+        let addr = self.op();
         let ret_addr = self.pc;
         let [hi, lo] = ret_addr.to_be_bytes();
         self.stack_push(hi, bus);
@@ -265,24 +265,28 @@ impl Cpu {
         if reg.is16() {
             let lhs = self.regs.get16(reg);
             let rhs = self.op();
-            self.flags.update16(lhs.wrapping_sub(rhs));
-            self.flags.carry = lhs >= rhs;
+            let (result, carry) = cmp16(lhs, rhs);
+            self.flags.update16(result);
+            self.flags.carry = carry;
         } else {
             let lhs = self.regs.get(reg);
             let rhs = self.op_lo;
-            self.flags.update(lhs.wrapping_sub(rhs));
-            self.flags.carry = lhs >= rhs;
+            let (result, carry) = cmp(lhs, rhs);
+            self.flags.update(result);
+            self.flags.carry = carry;
         }
     }
 
     /// Decrements the value in register `reg`, updating flags.
     pub fn dec(&mut self, reg: Reg) {
         if reg.is16() {
-            let result = self.regs.get16(reg).wrapping_sub(1);
+            let input = self.regs.get16(reg);
+            let result = dec16(input);
             self.regs.set16(reg, result);
             self.flags.update16(result);
         } else {
-            let result = self.regs.get(reg).wrapping_sub(1);
+            let input = self.regs.get(reg);
+            let result = dec(input);
             self.regs.set(reg, result);
             self.flags.update(result);
         }
@@ -294,14 +298,16 @@ impl Cpu {
             && reg.is16()
         {
             let addr = self.regs.get16(reg);
-            self.dec_mem(addr, bus);
+            bus.read_mem(addr);
+            self.state = WaitDec(addr);
         } else {
             self.trap(TRAP_ILLEGAL, bus);
         }
     }
 
     /// Decrements the value at the address `addr`.
-    pub fn dec_mem(&mut self, addr: u16, bus: &mut Bus) {
+    pub fn dec_mem(&mut self, bus: &mut Bus) {
+        let addr = self.op();
         bus.read_mem(addr);
         self.state = WaitDec(addr);
     }
@@ -310,33 +316,32 @@ impl Cpu {
     pub fn execute(&mut self, ins: InstructionKind, bus: &mut Bus) {
         use InstructionKind::*;
         match ins {
-            Add(reg) if reg.is16() => self.add16(reg, self.op()),
-            Add(reg) => self.add(reg, self.op_lo),
-            And(reg) => self.and(reg, self.op_lo),
-            BranchAlways => self.branch(self.op_lo),
-            BranchCc if !self.flags.carry => self.branch(self.op_lo),
-            BranchCs if self.flags.carry => self.branch(self.op_lo),
-            BranchEq if self.flags.zero => self.branch(self.op_lo),
-            BranchMi if self.flags.negative => self.branch(self.op_lo),
-            BranchNe if !self.flags.zero => self.branch(self.op_lo),
-            BranchPl if !self.flags.negative => self.branch(self.op_lo),
-            Call => self.call(self.op(), bus),
+            Add(reg) => self.add(reg),
+            And(reg) => self.and_imm(reg),
+            BranchAlways => self.branch(),
+            BranchCc if !self.flags.carry => self.branch(),
+            BranchCs if self.flags.carry => self.branch(),
+            BranchEq if self.flags.zero => self.branch(),
+            BranchMi if self.flags.negative => self.branch(),
+            BranchNe if !self.flags.zero => self.branch(),
+            BranchPl if !self.flags.negative => self.branch(),
+            Call => self.call(bus),
             Clc => self.flags.carry = false,
             Cmp(reg) => self.cmp(reg),
             Dec(reg) => self.dec(reg),
             DecIndirect => self.dec_indirect(bus),
-            DecMem => self.dec_mem(self.op(), bus),
+            DecMem => self.dec_mem(bus),
             Halt => self.halt = true,
             Jmp => self.pc = self.op(),
             Inc(reg) => self.inc(reg),
             IncIndirect => self.inc_indirect(bus),
-            IncMem => self.inc_mem(self.op(), bus),
+            IncMem => self.inc_mem(bus),
             LdIndexed => self.ld_indexed(bus),
-            LdImm(reg) => self.ld_imm(reg),
+            Ld(reg) => self.ld_imm(reg),
             LdIndirect => self.ld_indirect(bus),
             LdReg => self.ld_reg(bus),
-            Lsr => self.lsr(self.op_lo, bus),
-            LsrReg => self.lsr_reg(self.op_lo, bus),
+            Lsr => self.lsr_imm(bus),
+            LsrReg => self.lsr_reg(bus),
             Pop(reg) => self.pop(reg, bus),
             PopPS => self.pop_ps(bus),
             Push(reg) => self.push(reg, bus),
@@ -344,11 +349,11 @@ impl Cpu {
             Ret => self.ret(bus),
             Rti => self.rti(bus),
             Sec => self.flags.carry = true,
-            StoreDirect(reg) => self.store_direct(reg, bus),
+            Store(reg) => self.store_direct(reg, bus),
             StoreIndexed => self.store_indexed(bus),
             StoreIndirect => self.store_indirect(bus),
             StoreIndirectImm => self.store_indirect_imm(bus),
-            Sub(reg) => self.sub(reg, self.op_lo),
+            Sub(reg) => self.sub(reg),
             Trap => self.trap(self.op_lo, bus),
             Nop | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe | BranchPl => {}
         }
@@ -363,11 +368,13 @@ impl Cpu {
     /// Increments the value in register `reg`, updating flags.
     pub fn inc(&mut self, reg: Reg) {
         if reg.is16() {
-            let result = self.regs.get16(reg).wrapping_add(1);
+            let input = self.regs.get16(reg);
+            let result = inc16(input);
             self.regs.set16(reg, result);
             self.flags.update16(result);
         } else {
-            let result = self.regs.get(reg).wrapping_add(1);
+            let input = self.regs.get(reg);
+            let result = inc(input);
             self.regs.set(reg, result);
             self.flags.update(result);
         }
@@ -379,14 +386,16 @@ impl Cpu {
             && reg.is16()
         {
             let addr = self.regs.get16(reg);
-            self.inc_mem(addr, bus);
+            bus.read_mem(addr);
+            self.state = WaitInc(addr);
         } else {
             self.trap(TRAP_ILLEGAL, bus);
         }
     }
 
     /// Increments the value at the address `addr`.
-    pub fn inc_mem(&mut self, addr: u16, bus: &mut Bus) {
+    pub fn inc_mem(&mut self, bus: &mut Bus) {
+        let addr = self.op();
         bus.read_mem(addr);
         self.state = WaitInc(addr);
     }
@@ -440,56 +449,53 @@ impl Cpu {
         }
     }
 
+    pub fn load(&mut self, target: Reg) {
+        if target.is16() {
+            let value = self.op();
+            self.regs.set16(target, value);
+            self.flags.update16(value);
+        } else {
+            let value = self.op_lo;
+            self.regs.set(target, value);
+            self.flags.update(value);
+        }
+    }
+
+    pub fn lsr(&mut self, target: Reg, shift: u8) {
+        if target.is16() {
+            let input = self.regs.get16(target);
+            let (result, carry) = lsr16(input, shift);
+            self.regs.set16(target, result);
+            self.flags.update16(result);
+            self.flags.carry = carry;
+        } else {
+            let input = self.regs.get(target);
+            let (result, carry) = lsr(input, shift);
+            self.regs.set(target, result);
+            self.flags.update(result);
+            self.flags.carry = carry;
+        }
+    }
+
     /// Executes an `lsr R, S` instruction.
-    pub fn lsr(&mut self, encoded: u8, bus: &mut Bus) {
-        let Ok(ShiftReg { mut shift, target }) = ShiftReg::try_from(encoded) else {
+    pub fn lsr_imm(&mut self, bus: &mut Bus) {
+        let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(self.op_lo) else {
             self.trap(TRAP_ILLEGAL, bus);
             return;
         };
-        shift = shift.clamp(1, 8);
-        let mut value = self
-            .regs
-            .get(target)
-            .unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
-        let last_bit = value & 1;
-        value = value.unbounded_shr(1);
-        self.regs.set(target, value);
-        self.flags.update(value);
-        self.flags.carry = last_bit == 1;
+        self.lsr(target, shift);
     }
 
     /// Executes an `lsr R1, R2` instruction.
-    pub fn lsr_reg(&mut self, regs: u8, bus: &mut Bus) {
-        let (target, shift) = match RegToReg::try_from(regs) {
-            Ok(RegToReg { source, target }) if !source.is16() => {
-                (target, self.regs.get(source).clamp(1, 8))
-            }
+    pub fn lsr_reg(&mut self, bus: &mut Bus) {
+        let (target, shift) = match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if !source.is16() => (target, self.regs.get(source)),
             _ => {
                 self.trap(TRAP_ILLEGAL, bus);
                 return;
             }
         };
-        if target.is16() {
-            let mut value = self
-                .regs
-                .get16(target)
-                .unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
-            let last_bit = value & 1;
-            value = value.unbounded_shr(1);
-            self.regs.set16(target, value);
-            self.flags.update16(value);
-            self.flags.carry = last_bit == 1;
-        } else {
-            let mut value = self
-                .regs
-                .get(target)
-                .unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
-            let last_bit = value & 1;
-            value = value.unbounded_shr(1);
-            self.regs.set(target, value);
-            self.flags.update(value);
-            self.flags.carry = last_bit == 1;
-        }
+        self.lsr(target, shift);
     }
 
     /// Returns the 16-bit value of the two operand registers.
@@ -611,14 +617,22 @@ impl Cpu {
     }
 
     /// Subtract with carry.
-    pub fn sub(&mut self, reg: Reg, subtrahend: u8) {
-        let minuend = self.regs.get(reg);
-        let (result1, borrow1) = minuend.overflowing_sub(subtrahend);
-        let borrow_in = u8::from(!self.flags.carry);
-        let (result2, borrow2) = result1.overflowing_sub(borrow_in);
-        self.regs.set(reg, result2);
-        self.flags.update(result2);
-        self.flags.carry = !(borrow1 || borrow2);
+    pub fn sub(&mut self, reg: Reg) {
+        if reg.is16() {
+            let minuend = self.regs.get16(reg);
+            let subtrahend = self.op();
+            let (result, carry) = sub16(minuend, subtrahend, self.flags.carry);
+            self.regs.set16(reg, result);
+            self.flags.update16(result);
+            self.flags.carry = carry;
+        } else {
+            let minuend = self.regs.get(reg);
+            let subtrahend = self.op_lo;
+            let (result, carry) = sub(minuend, subtrahend, self.flags.carry);
+            self.regs.set(reg, result);
+            self.flags.update(result);
+            self.flags.carry = carry;
+        }
     }
 
     /// Executes a trap.
@@ -1123,14 +1137,15 @@ mod tests {
     }
 
     #[test]
-    fn add_sp() {
+    fn add16() {
         let mut sys = System::default();
         sys.test_asm(
             "
+                ld sp, 0x0001
                 add sp, 0x0A01
                 halt",
         );
-        assert_hex!(sys.cpu.regs.get16(SP), 0x0A01, "wrong SP");
+        assert_hex!(sys.cpu.regs.get16(SP), 0x0A02, "wrong SP");
     }
 
     #[test]
@@ -1528,6 +1543,25 @@ mod tests {
             "negative set: non-negative result"
         );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: dec to zero");
+    }
+
+    #[test]
+    fn cmp16() {
+        let mut sys = System::default();
+        sys.cpu.flags.zero = false;
+        sys.cpu.flags.carry = false;
+        sys.test_asm(
+            "
+                ld ab, 0x0201
+                cmp ab, 0x0201
+                halt",
+        );
+        assert_eq!(sys.cpu.flags.carry, true, "carry clear: equal cmp");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, true, "zero clear: equal cmp");
     }
 
     #[test]
@@ -2004,6 +2038,18 @@ mod tests {
     }
 
     #[test]
+    fn lsr16() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld ab, 0x0100
+                lsr ab, 0x01
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0080, "wrong AB");
+    }
+
+    #[test]
     fn lsr_reg() {
         let mut sys = System::default();
         sys.test_asm(
@@ -2393,6 +2439,19 @@ mod tests {
                 if case.output == 0 { "set" } else { "cleared" }
             );
         }
+    }
+
+    #[test]
+    fn sub16() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                sec
+                ld ab, 0x0001
+                sub ab, 0x0001
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0000, "wrong AB");
     }
 
     #[test]
