@@ -225,6 +225,30 @@ impl Regs {
     }
 }
 
+pub struct ShiftReg {
+    pub shift: u8,
+    pub target: Reg,
+}
+
+impl From<ShiftReg> for u8 {
+    fn from(input: ShiftReg) -> Self {
+        (input.shift << 4_u8) | u8::from(input.target)
+    }
+}
+
+impl TryFrom<u8> for ShiftReg {
+    type Error = anyhow::Error;
+
+    fn try_from(encoded: u8) -> Result<Self, Self::Error> {
+        let shift = encoded.strict_shr(4);
+        if let Ok(target) = Reg::try_from(encoded & 0x0F) {
+            Ok(Self { shift, target })
+        } else {
+            bail!("invalid register id {:#04X}", encoded & 0x0F)
+        }
+    }
+}
+
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "tests")]
 mod tests {

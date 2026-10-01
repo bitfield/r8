@@ -1,7 +1,7 @@
 use r8cpu::{
     flags::Flags,
     instructions::{InstructionKind, Operands},
-    regs::{Reg, RegToReg, Regs},
+    regs::{Reg, RegToReg, Regs, ShiftReg},
 };
 
 use crate::{
@@ -335,7 +335,7 @@ impl Cpu {
             LdImm(reg) => self.ld_imm(reg),
             LdIndirect => self.ld_indirect(bus),
             LdReg => self.ld_reg(bus),
-            Lsr => self.lsr(self.op_lo, self.op_hi, bus),
+            Lsr => self.lsr(self.op_lo, bus),
             LsrReg => self.lsr_reg(self.op_lo, bus),
             Pop(reg) => self.pop(reg, bus),
             PopPS => self.pop_ps(bus),
@@ -441,19 +441,19 @@ impl Cpu {
     }
 
     /// Executes an `lsr R, S` instruction.
-    pub fn lsr(&mut self, reg_spec: u8, mut bits: u8, bus: &mut Bus) {
-        let Ok(reg) = Reg::try_from(reg_spec) else {
+    pub fn lsr(&mut self, encoded: u8, bus: &mut Bus) {
+        let Ok(ShiftReg { mut shift, target }) = ShiftReg::try_from(encoded) else {
             self.trap(TRAP_ILLEGAL, bus);
             return;
         };
-        bits = bits.clamp(1, 8);
+        shift = shift.clamp(1, 8);
         let mut value = self
             .regs
-            .get(reg)
-            .unbounded_shr(u32::from(bits.strict_sub(1))); // clamped >= 1
+            .get(target)
+            .unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
         let last_bit = value & 1;
         value = value.unbounded_shr(1);
-        self.regs.set(reg, value);
+        self.regs.set(target, value);
         self.flags.update(value);
         self.flags.carry = last_bit == 1;
     }
@@ -647,7 +647,10 @@ impl Cpu {
 mod tests {
     use crate::system::System;
     use r8asm::{as_hex, assemble_with_debug};
-    use r8cpu::{instructions::InstructionKind::*, regs::Reg::*};
+    use r8cpu::{
+        instructions::InstructionKind::*,
+        regs::{Reg::*, ShiftReg},
+    };
 
     use super::*;
 
@@ -1960,7 +1963,13 @@ mod tests {
         for case in cases {
             sys.cpu.flags.carry = case.carry_in;
             sys.cpu.regs.set(A, case.input);
-            sys.test_prog(&[u8::from(Lsr), u8::from(A), case.shift]);
+            sys.test_prog(&[
+                u8::from(Lsr),
+                u8::from(ShiftReg {
+                    shift: case.shift,
+                    target: A,
+                }),
+            ]);
             assert_hex!(
                 sys.cpu.regs.get(A),
                 case.output,

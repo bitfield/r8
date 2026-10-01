@@ -251,7 +251,7 @@ impl InstructionKind {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
             And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe
-            | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | LsrReg
+            | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr | LsrReg
             | StoreIndirect | Sub(_) | Trap => One,
             Add(reg) | Cmp(reg) | LdImm(reg) => {
                 if reg.is16() {
@@ -260,7 +260,7 @@ impl InstructionKind {
                     One
                 }
             }
-            Call | DecMem | IncMem | Jmp | LdIndexed | Lsr | StoreDirect(_) | StoreIndexed
+            Call | DecMem | IncMem | Jmp | LdIndexed | StoreDirect(_) | StoreIndexed
             | StoreIndirectImm => Two,
         }
     }

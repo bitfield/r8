@@ -14,7 +14,7 @@ use std::{
 
 use r8cpu::{
     instructions::InstructionKind::{self, *},
-    regs::{Reg, RegToReg},
+    regs::{Reg, RegToReg, ShiftReg},
 };
 
 use Token::*;
@@ -522,13 +522,11 @@ impl Assembler {
         match self.next_token()? {
             ByteLiteral(shift) => {
                 self.emit_byte(u8::from(Lsr))?;
-                self.emit_byte(u8::from(target))?;
-                self.emit_byte(shift)
+                self.emit_byte(u8::from(ShiftReg { shift, target }))
             }
             Register(source) if !source.is16() => {
                 self.emit_byte(u8::from(LsrReg))?;
-                self.emit_byte(u8::from(RegToReg { source, target }))?;
-                Ok(())
+                self.emit_byte(u8::from(RegToReg { source, target }))
             }
             other => bail!("expected shift count or 8-bit register name, got '{other}'"),
         }
@@ -874,8 +872,8 @@ impl<'code> Disassembler<'code> {
 
     /// Disassembles a `lsr R, S` instruction.
     fn format_lsr(&mut self) -> String {
-        if let (Some(&target_spec), Some(shift)) = (self.code.next(), self.code.next())
-            && let Ok(target) = Reg::try_from(target_spec)
+        if let Some(&encoded) = self.code.next()
+            && let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(encoded)
         {
             format!("lsr {target}, {shift:#04X}")
         } else {
@@ -1569,7 +1567,7 @@ mod tests {
             ("ld cd, 0xBEEF", &[u8::from(LdImm(CD)), 0xEF, 0xBE]),
             ("ld sp, 0x010F", &[u8::from(LdImm(SP)), 0x0F, 0x01]),
             ("ld h, (sp+0x01)", &[u8::from(LdIndexed), 0xC7, 0x01]),
-            ("lsr a, 0x04", &[u8::from(Lsr), u8::from(A), 0x04]),
+            ("lsr a, 0x04", &[u8::from(Lsr), 0x40]),
             ("lsr ab, c", &[u8::from(LsrReg), 0x28]),
             ("nop", &[u8::from(Nop)]),
             ("pop e", &[u8::from(Pop(E))]),
