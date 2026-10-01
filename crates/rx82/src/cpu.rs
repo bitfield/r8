@@ -244,14 +244,16 @@ impl Cpu {
         }
     }
 
-    /// Branches to PC+`dis`.
+    /// Adds the operand to PC, causing a branch.
     #[expect(clippy::cast_possible_wrap, reason = "i8 to u16 is sound")]
     #[expect(clippy::cast_sign_loss, reason = "okay with wrapping_add")]
     pub fn branch(&mut self) {
         self.pc = self.pc.wrapping_add(self.op_lo as i8 as u16); // sign-extend displacement
     }
 
-    /// Calls the subroutine at `addr`, pushing the return address on the stack.
+    /// Calls the subroutine at the operand address.
+    ///
+    /// The return address is pushed on the stack.
     pub fn call(&mut self, bus: &mut Bus) {
         let addr = self.op();
         let ret_addr = self.pc;
@@ -260,7 +262,7 @@ impl Cpu {
         self.state = WaitCall(lo, addr);
     }
 
-    /// Compares the value in register `reg` with the operand, updating flags.
+    /// Compares the value in register `reg` with the operand.
     pub fn cmp(&mut self, reg: Reg) {
         if reg.is16() {
             let lhs = self.regs.get16(reg);
@@ -277,7 +279,7 @@ impl Cpu {
         }
     }
 
-    /// Decrements the value in register `reg`, updating flags.
+    /// Decrements the value in register `reg`.
     pub fn dec(&mut self, reg: Reg) {
         if reg.is16() {
             let input = self.regs.get16(reg);
@@ -292,7 +294,7 @@ impl Cpu {
         }
     }
 
-    /// Decrements the value at the address in `reg`.
+    /// Decrements the value at the address in the operand register.
     pub fn dec_indirect(&mut self, bus: &mut Bus) {
         if let Ok(reg) = Reg::try_from(self.op_lo)
             && reg.is16()
@@ -305,14 +307,14 @@ impl Cpu {
         }
     }
 
-    /// Decrements the value at the address `addr`.
+    /// Decrements the value at the operand address.
     pub fn dec_mem(&mut self, bus: &mut Bus) {
         let addr = self.op();
         bus.read_mem(addr);
         self.state = WaitDec(addr);
     }
 
-    /// Executes the instruction.
+    /// Executes an instruction.
     pub fn execute(&mut self, ins: InstructionKind, bus: &mut Bus) {
         use InstructionKind::*;
         match ins {
@@ -365,7 +367,7 @@ impl Cpu {
         self.pc = self.pc.wrapping_add(1);
     }
 
-    /// Increments the value in register `reg`, updating flags.
+    /// Increments the value in register `reg`.
     pub fn inc(&mut self, reg: Reg) {
         if reg.is16() {
             let input = self.regs.get16(reg);
@@ -380,7 +382,7 @@ impl Cpu {
         }
     }
 
-    /// Increments the value at the address in `reg`.
+    /// Increments the value at the address in the operand register.
     pub fn inc_indirect(&mut self, bus: &mut Bus) {
         if let Ok(reg) = Reg::try_from(self.op_lo)
             && reg.is16()
@@ -393,14 +395,14 @@ impl Cpu {
         }
     }
 
-    /// Increments the value at the address `addr`.
+    /// Increments the value at the operand address.
     pub fn inc_mem(&mut self, bus: &mut Bus) {
         let addr = self.op();
         bus.read_mem(addr);
         self.state = WaitInc(addr);
     }
 
-    /// Executes a `ld R, N` instruction.
+    /// Loads the register `reg` with the immediate operand.
     pub fn ld_imm(&mut self, reg: Reg) {
         if reg.is16() {
             self.regs.set16(reg, self.op());
@@ -411,7 +413,8 @@ impl Cpu {
         }
     }
 
-    /// Executes a `ld R, (RR+N)` instruction.
+    /// Loads the target register with the contents of the address in the source
+    /// register plus the operand index.
     pub fn ld_indexed(&mut self, bus: &mut Bus) {
         if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             let addr = self.regs.get16(source).wrapping_add(u16::from(self.op_hi));
@@ -422,7 +425,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a `ld R, (RR)` instruction.
+    /// Loads the target register with the contents of the address in the source register.
     pub fn ld_indirect(&mut self, bus: &mut Bus) {
         if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             bus.read_mem(self.regs.get16(source));
@@ -432,7 +435,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a `ld R1, R2` instruction.
+    /// Loads the target register with the contents of the target register.
     pub fn ld_reg(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if source.is16() && target.is16() => {
@@ -449,6 +452,7 @@ impl Cpu {
         }
     }
 
+    /// Loads the `target` register with the immediate operand.
     pub fn load(&mut self, target: Reg) {
         if target.is16() {
             let value = self.op();
@@ -461,6 +465,7 @@ impl Cpu {
         }
     }
 
+    /// Logical shift right the `target` register by `shift` bits.
     pub fn lsr(&mut self, target: Reg, shift: u8) {
         if target.is16() {
             let input = self.regs.get16(target);
@@ -477,7 +482,7 @@ impl Cpu {
         }
     }
 
-    /// Executes an `lsr R, S` instruction.
+    /// Logical shift right the target register by the operand shift.
     pub fn lsr_imm(&mut self, bus: &mut Bus) {
         let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(self.op_lo) else {
             self.trap(TRAP_ILLEGAL, bus);
@@ -486,7 +491,7 @@ impl Cpu {
         self.lsr(target, shift);
     }
 
-    /// Executes an `lsr R1, R2` instruction.
+    /// Logical shift right the target register by the contents of the source register.
     pub fn lsr_reg(&mut self, bus: &mut Bus) {
         let (target, shift) = match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if !source.is16() => (target, self.regs.get(source)),
@@ -504,7 +509,7 @@ impl Cpu {
         u16::from_be_bytes([self.op_hi, self.op_lo])
     }
 
-    /// Executes a `pop R` instruction.
+    /// Pops a value from the stack into register `reg`.
     pub fn pop(&mut self, reg: Reg, bus: &mut Bus) {
         self.stack_pop(bus);
         if reg.is16() {
@@ -515,13 +520,13 @@ impl Cpu {
         }
     }
 
-    /// Executes a `pop ps` instruction.
+    /// Pops the PS pseudo-register from the stack.
     pub fn pop_ps(&mut self, bus: &mut Bus) {
         self.stack_pop(bus);
         self.state = WaitPS;
     }
 
-    /// Executes a `push R` instruction.
+    /// Pushes the contents of register `reg` to the stack.
     pub fn push(&mut self, reg: Reg, bus: &mut Bus) {
         if reg.is16() {
             let value = self.regs.get16(reg);
@@ -534,7 +539,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a `push ps` instruction.
+    /// Pushes the pseudo-register PS to the stack.
     pub fn push_ps(&mut self, bus: &mut Bus) {
         let value = u8::from(self.flags);
         self.stack_push(value, bus);
@@ -572,7 +577,7 @@ impl Cpu {
         self.regs.set16(Reg::SP, addr);
     }
 
-    /// Writes `val` to the stack, adjusting SP.
+    /// Writes `value` to the stack, adjusting SP.
     pub fn stack_push(&mut self, value: u8, bus: &mut Bus) {
         let mut addr = self.regs.get16(Reg::SP);
         bus.write_mem(addr, value);
@@ -580,12 +585,12 @@ impl Cpu {
         self.regs.set16(Reg::SP, addr);
     }
 
-    /// Executes a `ld NN, R` instruction.
+    /// Stores the contents of register `reg` at the operand address.
     pub fn store_direct(&mut self, reg: Reg, bus: &mut Bus) {
         bus.write_mem(self.op(), self.regs.get(reg));
     }
 
-    /// Executes a `ld (RR+N), R` instruction.
+    /// Stores the contents of the source register at the address in the target register plus the operand index.
     pub fn store_indexed(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {
@@ -596,7 +601,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a `ld (RR), R` instruction.
+    /// Stores the contents of the source register at the address in the target register.
     pub fn store_indirect(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {
@@ -606,7 +611,7 @@ impl Cpu {
         }
     }
 
-    /// Executes a `ld (RR), N` instruction.
+    /// Stores the immediate operand at the address in the operand register.
     pub fn store_indirect_imm(&mut self, bus: &mut Bus) {
         match Reg::try_from(self.op_lo) {
             Ok(target) if target.is16() => {
@@ -616,7 +621,7 @@ impl Cpu {
         }
     }
 
-    /// Subtract with carry.
+    /// Subtract with carry the immediate operand from the register `reg`.
     pub fn sub(&mut self, reg: Reg) {
         if reg.is16() {
             let minuend = self.regs.get16(reg);
@@ -635,22 +640,22 @@ impl Cpu {
         }
     }
 
-    /// Executes a trap.
+    /// Traps with `code` to the appropriate vector in the trap table.
     ///
-    /// The `trap_code` is used to select a vector from the trap table, and the CPU
-    /// jumps to that address after pushing the flags, return address, and trap code to
-    /// the stack.
-    pub fn trap(&mut self, mut trap_code: u8, bus: &mut Bus) {
-        if trap_code == 0x20 {
+    /// `code` is used to compute the address of the vector in the trap table, and the
+    /// CPU then jumps to that address after pushing the flags, return address, and trap
+    /// code to the stack.
+    pub fn trap(&mut self, mut code: u8, bus: &mut Bus) {
+        if code == 0x20 {
             print!("{}", self.regs.get(Reg::A) as char);
         }
-        if trap_code >= 0x40 {
-            trap_code = TRAP_ILLEGAL;
+        if code >= 0x40 {
+            code = TRAP_ILLEGAL;
         }
         let ret_addr = self.pc;
         let [hi, lo] = ret_addr.to_be_bytes();
         self.stack_push(hi, bus);
-        self.state = PushRetLo(lo, trap_code);
+        self.state = PushRetLo(lo, code);
     }
 }
 
