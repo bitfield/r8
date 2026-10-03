@@ -305,7 +305,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a `cmp R, N` instruction.
+    /// Generates a compare instruction.
     ///
     /// # Errors
     ///
@@ -313,14 +313,23 @@ impl Assembler {
     /// * Missing comma.
     /// * Missing or mis-sized operand.
     pub fn gen_cmp(&mut self) -> Result<()> {
-        let reg = self.expect_reg()?;
+        let target = self.expect_reg()?;
         self.expect(&Comma)?;
-        self.emit_byte(u8::from(Cmp(reg)))?;
-        let operand = self.expect_op_for_reg(reg)?;
-        for byte in operand {
-            self.emit_byte(byte)?;
+        match self.next_token()? {
+            ByteLiteral(rhs) if !target.is16() => {
+                self.emit_byte(u8::from(Cmp(target)))?;
+                self.emit_byte(rhs)
+            }
+            WordLiteral(rhs) if target.is16() => {
+                self.emit_byte(u8::from(Cmp(target)))?;
+                self.emit_word(rhs)
+            }
+            Register(source) if source.is16() == target.is16() => {
+                self.emit_byte(u8::from(CmpReg))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))
+            }
+            other => bail!("expected same-size immediate value or register name, got '{other}'"),
         }
-        Ok(())
     }
 
     /// Generates literal data.
@@ -786,6 +795,7 @@ impl Iterator for Disassembler<'_> {
                 Call => format!("call {}", self.format_word()),
                 Clc => "clc".into(),
                 Cmp(reg) => format!("cmp {reg}, {}", self.format_op_for_reg(reg)),
+                CmpReg => self.format_reg_reg("cmp"),
                 Dec(reg) => format!("dec {reg}"),
                 DecIndirect => self.format_dec_indirect(),
                 DecMem => format!("dec ({})", self.format_word()),
@@ -1556,7 +1566,9 @@ mod tests {
             ("call 0xBEEE", &[u8::from(Call), 0xEE, 0xBE]),
             ("clc", &[u8::from(Clc)]),
             ("cmp d, 0x01", &[u8::from(Cmp(D)), 0x01]),
+            ("cmp d, a", &[u8::from(CmpReg), 0x03]),
             ("cmp gh, 0xDEAD", &[u8::from(Cmp(GH)), 0xAD, 0xDE]),
+            ("cmp ab, sp", &[u8::from(CmpReg), 0xC8]),
             ("dec (0xBABE)", &[u8::from(DecMem), 0xBE, 0xBA]),
             ("dec (gh)", &[u8::from(DecIndirect), 0x0B]),
             ("dec ab", &[u8::from(Dec(AB))]),
@@ -1691,6 +1703,7 @@ mod tests {
             "sub a",
             "sub a, cd",
             "sub ab, 0xFF",
+            "sub sp, a",
             "trap 0x40",
             "trap 0xFF",
             "trap a",

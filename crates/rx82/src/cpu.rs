@@ -208,7 +208,7 @@ impl Device for Cpu {
 }
 
 impl Cpu {
-    /// Add with carry.
+    /// Adds immediate value with carry.
     pub fn add(&mut self, target: Reg) {
         if target.is16() {
             let augend = self.regs.get16(target);
@@ -227,7 +227,7 @@ impl Cpu {
         }
     }
 
-    /// Add register with carry.
+    /// Adds register value with carry.
     pub fn add_reg(&mut self, bus: &mut Bus) {
         if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             if target.is16() {
@@ -285,7 +285,7 @@ impl Cpu {
         self.state = WaitCall(lo, addr);
     }
 
-    /// Compares the value in register `reg` with the operand.
+    /// Compares `reg` with immediate operand.
     pub fn cmp(&mut self, reg: Reg) {
         if reg.is16() {
             let lhs = self.regs.get16(reg);
@@ -299,6 +299,27 @@ impl Cpu {
             let (result, carry) = cmp(lhs, rhs);
             self.flags.update(result);
             self.flags.carry = carry;
+        }
+    }
+
+    /// Compares registers.
+    pub fn cmp_reg(&mut self, bus: &mut Bus) {
+        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
+            if target.is16() {
+                let lhs = self.regs.get16(target);
+                let rhs = self.regs.get16(source);
+                let (result, carry) = cmp16(lhs, rhs);
+                self.flags.update16(result);
+                self.flags.carry = carry;
+            } else {
+                let lhs = self.regs.get(target);
+                let rhs = self.regs.get(source);
+                let (result, carry) = cmp(lhs, rhs);
+                self.flags.update(result);
+                self.flags.carry = carry;
+            }
+        } else {
+            self.trap(TRAP_ILLEGAL, bus);
         }
     }
 
@@ -354,6 +375,7 @@ impl Cpu {
             Call => self.call(bus),
             Clc => self.flags.carry = false,
             Cmp(reg) => self.cmp(reg),
+            CmpReg => self.cmp_reg(bus),
             Dec(reg) => self.dec(reg),
             DecIndirect => self.dec_indirect(bus),
             DecMem => self.dec_mem(bus),

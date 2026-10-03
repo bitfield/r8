@@ -31,8 +31,10 @@ pub enum InstructionKind {
     Call,
     /// Clear carry flag.
     Clc,
-    /// Compare a register with an immediate operand.
+    /// Compare immediate.
     Cmp(Reg),
+    /// Compare register.
+    CmpReg,
     /// Decrement a register.
     Dec(Reg),
     /// Decrement a memory location in a register.
@@ -116,6 +118,7 @@ impl Display for InstructionKind {
                 Call => "call NN".to_owned(),
                 Clc => "clc".to_owned(),
                 Cmp(reg) => format!("cmp {reg}, N"),
+                CmpReg => "cmp R1, R2".to_owned(),
                 Dec(reg) => format!("dec {reg}"),
                 DecIndirect => "dec (RR)".to_owned(),
                 DecMem => "dec (NN)".to_owned(),
@@ -181,6 +184,7 @@ impl TryFrom<u8> for InstructionKind {
             0x60..=0x6C => Sub(reg?),
             0x6F => SubReg,
             0x70..=0x7C => Cmp(reg?),
+            0x7F => CmpReg,
             0x80..=0x87 => And(reg?),
             0x8A => LsrReg,
             0x8B => Lsr,
@@ -219,6 +223,7 @@ impl From<InstructionKind> for u8 {
             Call => 0xF8,
             Clc => 0x04,
             Cmp(reg) => 0x70 | u8::from(reg),
+            CmpReg => 0x7F,
             Dec(reg) => 0x40 | u8::from(reg),
             DecIndirect => 0x4D,
             DecMem => 0x4E,
@@ -261,8 +266,8 @@ impl InstructionKind {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
             AddReg | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
-            | BranchNe | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr
-            | LsrReg | StoreIndirect | SubReg | Trap => One,
+            | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect | LdReg
+            | Lsr | LsrReg | StoreIndirect | SubReg | Trap => One,
             Add(reg) | Cmp(reg) | Ld(reg) | Sub(reg) => {
                 if reg.is16() {
                     Two
