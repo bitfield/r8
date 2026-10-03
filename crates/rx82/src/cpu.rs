@@ -380,6 +380,7 @@ impl Cpu {
             StoreIndirect => self.store_indirect(bus),
             StoreIndirectImm => self.store_indirect_imm(bus),
             Sub(reg) => self.sub(reg),
+            SubReg => self.sub_reg(bus),
             Trap => self.trap(self.op_lo, bus),
             Nop | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe | BranchPl => {}
         }
@@ -661,6 +662,29 @@ impl Cpu {
             self.regs.set(reg, result);
             self.flags.update(result);
             self.flags.carry = carry;
+        }
+    }
+
+    /// Subtract register with carry.
+    pub fn sub_reg(&mut self, bus: &mut Bus) {
+        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
+            if target.is16() {
+                let minuend = self.regs.get16(target);
+                let subtrahend = self.regs.get16(source);
+                let (result, carry) = sub16(minuend, subtrahend, self.flags.carry);
+                self.regs.set16(target, result);
+                self.flags.update16(result);
+                self.flags.carry = carry;
+            } else {
+                let minuend = self.regs.get(target);
+                let subtrahend = self.regs.get(source);
+                let (result, carry) = sub(minuend, subtrahend, self.flags.carry);
+                self.regs.set(target, result);
+                self.flags.update(result);
+                self.flags.carry = carry;
+            }
+        } else {
+            self.trap(TRAP_ILLEGAL, bus);
         }
     }
 
@@ -2476,11 +2500,11 @@ mod tests {
         sys.test_asm(
             "
                 sec
-                ld ab, 0x0001
-                sub ab, 0x0001
+                ld ab, 0x0202
+                sub ab, 0x0101
                 halt",
         );
-        assert_hex!(sys.cpu.regs.get16(AB), 0x0000, "wrong AB");
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0101, "wrong AB");
     }
 
     #[test]

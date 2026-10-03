@@ -87,8 +87,10 @@ pub enum InstructionKind {
     StoreIndirect,
     /// Store an immediate value at an indirect address in a register.
     StoreIndirectImm,
-    /// Subtract with carry.
+    /// Subtract immediate.
     Sub(Reg),
+    /// Subtract register.
+    SubReg,
     /// Trap with a specified code.
     Trap,
 }
@@ -141,6 +143,7 @@ impl Display for InstructionKind {
                 StoreIndirect => "ld (RR), R".to_owned(),
                 StoreIndirectImm => "ld (RR), N".to_owned(),
                 Sub(reg) => format!("sub {reg}, N"),
+                SubReg => "sub R1, R2".to_owned(),
                 Trap => "trap T".to_owned(),
             }
         )
@@ -176,6 +179,7 @@ impl TryFrom<u8> for InstructionKind {
             0x50..=0x5C => Add(reg?),
             0x5F => AddReg,
             0x60..=0x6C => Sub(reg?),
+            0x6F => SubReg,
             0x70..=0x7C => Cmp(reg?),
             0x80..=0x87 => And(reg?),
             0x8A => LsrReg,
@@ -242,6 +246,7 @@ impl From<InstructionKind> for u8 {
             StoreIndirect => 0x28,
             StoreIndirectImm => 0x29,
             Sub(reg) => 0x60 | u8::from(reg),
+            SubReg => 0x6F,
             Trap => 0xF9,
         }
     }
@@ -257,8 +262,8 @@ impl InstructionKind {
             | Sec => Zero,
             AddReg | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
             | BranchNe | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr
-            | LsrReg | StoreIndirect | Sub(_) | Trap => One,
-            Add(reg) | Cmp(reg) | Ld(reg) => {
+            | LsrReg | StoreIndirect | SubReg | Trap => One,
+            Add(reg) | Cmp(reg) | Ld(reg) | Sub(reg) => {
                 if reg.is16() {
                     Two
                 } else {

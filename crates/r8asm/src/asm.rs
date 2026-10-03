@@ -623,7 +623,7 @@ impl Assembler {
         Ok(())
     }
 
-    /// Generates a `sub R, N` instruction.
+    /// Generates a subtract instruction.
     ///
     /// # Errors
     ///
@@ -631,14 +631,23 @@ impl Assembler {
     /// * Missing comma.
     /// * Missing or mis-sized operand.
     pub fn gen_sub(&mut self) -> Result<()> {
-        let reg = self.expect_reg()?;
+        let target = self.expect_reg()?;
         self.expect(&Comma)?;
-        self.emit_byte(u8::from(Sub(reg)))?;
-        let operand = self.expect_op_for_reg(reg)?;
-        for byte in operand {
-            self.emit_byte(byte)?;
+        match self.next_token()? {
+            ByteLiteral(subtrahend) if !target.is16() => {
+                self.emit_byte(u8::from(Sub(target)))?;
+                self.emit_byte(subtrahend)
+            }
+            WordLiteral(subtrahend) if target.is16() => {
+                self.emit_byte(u8::from(Sub(target)))?;
+                self.emit_word(subtrahend)
+            }
+            Register(source) if source.is16() == target.is16() => {
+                self.emit_byte(u8::from(SubReg))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))
+            }
+            other => bail!("expected same-size immediate value or register name, got '{other}'"),
         }
-        Ok(())
     }
 
     /// Generates a `trap T` instruction.
@@ -804,6 +813,7 @@ impl Iterator for Disassembler<'_> {
                 StoreIndirect => self.format_store_indirect(),
                 StoreIndirectImm => self.format_store_indirect_imm(),
                 Sub(reg) => format!("sub {reg}, {}", self.format_op_for_reg(reg)),
+                SubReg => self.format_reg_reg("sub"),
                 Trap => format!("trap {}", self.format_byte()),
             }
         } else {
@@ -1579,7 +1589,9 @@ mod tests {
             ("rti", &[u8::from(Rti)]),
             ("sec", &[u8::from(Sec)]),
             ("sub a, 0x01", &[u8::from(Sub(A)), 0x01]),
+            ("sub b, c", &[u8::from(SubReg), 0x21]),
             ("sub cd, 0x0104", &[u8::from(Sub(CD)), 0x04, 0x01]),
+            ("sub sp, ef", &[u8::from(SubReg), 0xAC]),
             ("trap 0x01", &[u8::from(Trap), 0x01]),
         ];
         for &(source, object) in cases {
