@@ -67,7 +67,7 @@ pub fn lsr(input: u8, mut shift: u8) -> (u8, bool) {
 
 #[must_use]
 pub fn lsr16(input: u16, mut shift: u8) -> (u16, bool) {
-    shift = shift.clamp(1, 8);
+    shift = shift.clamp(1, 16);
     let value = input.unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
     let carry = (value & 1) == 1;
     let result = value.unbounded_shr(1);

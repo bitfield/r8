@@ -2117,11 +2117,11 @@ mod tests {
         let mut sys = System::default();
         sys.test_asm(
             "
-                ld ab, 0x0100
-                lsr ab, 0x01
+                ld ab, 0x8000
+                lsr ab, 0x09
                 halt",
         );
-        assert_hex!(sys.cpu.regs.get16(AB), 0x0080, "wrong AB");
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0040, "wrong AB");
     }
 
     #[test]
