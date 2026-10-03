@@ -7,8 +7,10 @@ use crate::regs::Reg;
 /// Instruction kinds.
 #[derive(Copy, Clone, Debug)]
 pub enum InstructionKind {
-    /// Add with carry.
+    /// Add immediate.
     Add(Reg),
+    /// Add register.
+    AddReg,
     /// Bitwise immediate AND.
     And(Reg),
     /// Branch always.
@@ -100,6 +102,7 @@ impl Display for InstructionKind {
             "{}",
             match *self {
                 Add(reg) => format!("add {reg}, N"),
+                AddReg => "add R1, R2".to_owned(),
                 And(reg) => format!("and {reg}, N"),
                 BranchAlways => "bra D".to_owned(),
                 BranchCc => "bcc D".to_owned(),
@@ -171,6 +174,7 @@ impl TryFrom<u8> for InstructionKind {
             0x4D => DecIndirect,
             0x4E => DecMem,
             0x50..=0x5C => Add(reg?),
+            0x5F => AddReg,
             0x60..=0x6C => Sub(reg?),
             0x70..=0x7C => Cmp(reg?),
             0x80..=0x87 => And(reg?),
@@ -199,6 +203,7 @@ impl From<InstructionKind> for u8 {
     fn from(ins: InstructionKind) -> Self {
         match ins {
             Add(reg) => 0x50 | u8::from(reg),
+            AddReg => 0x5F,
             And(reg) => 0x80 | u8::from(reg),
             BranchAlways => 0xF0,
             BranchCc => 0xF4,
@@ -250,9 +255,9 @@ impl InstructionKind {
         match *self {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
-            And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe
-            | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr | LsrReg
-            | StoreIndirect | Sub(_) | Trap => One,
+            AddReg | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
+            | BranchNe | BranchPl | DecIndirect | IncIndirect | LdIndirect | LdReg | Lsr
+            | LsrReg | StoreIndirect | Sub(_) | Trap => One,
             Add(reg) | Cmp(reg) | Ld(reg) => {
                 if reg.is16() {
                     Two

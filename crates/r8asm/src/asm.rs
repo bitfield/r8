@@ -232,7 +232,7 @@ impl Assembler {
         Ok(reg)
     }
 
-    /// Generates an `add R, N` instruction.
+    /// Generates an add instruction.
     ///
     /// # Errors
     ///
@@ -240,14 +240,23 @@ impl Assembler {
     /// * Missing comma.
     /// * Missing or mis-sized operand.
     pub fn gen_add(&mut self) -> Result<()> {
-        let reg = self.expect_reg()?;
+        let target = self.expect_reg()?;
         self.expect(&Comma)?;
-        self.emit_byte(u8::from(Add(reg)))?;
-        let operand = self.expect_op_for_reg(reg)?;
-        for byte in operand {
-            self.emit_byte(byte)?;
+        match self.next_token()? {
+            ByteLiteral(addend) if !target.is16() => {
+                self.emit_byte(u8::from(Add(target)))?;
+                self.emit_byte(addend)
+            }
+            WordLiteral(addend) if target.is16() => {
+                self.emit_byte(u8::from(Add(target)))?;
+                self.emit_word(addend)
+            }
+            Register(source) if source.is16() == target.is16() => {
+                self.emit_byte(u8::from(AddReg))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))
+            }
+            other => bail!("expected same-size immediate value or register name, got '{other}'"),
         }
-        Ok(())
     }
 
     /// Generates an `and R, N` instruction.
@@ -756,6 +765,7 @@ impl Iterator for Disassembler<'_> {
         Some(if let Ok(ins) = InstructionKind::try_from(opcode) {
             match ins {
                 Add(reg) => format!("add {reg}, {}", self.format_op_for_reg(reg)),
+                AddReg => self.format_reg_reg("add"),
                 And(reg) => format!("and {reg}, {}", self.format_byte()),
                 BranchAlways => format!("bra {}", self.format_byte()),
                 BranchCc => format!("bcc {}", self.format_byte()),
@@ -778,9 +788,9 @@ impl Iterator for Disassembler<'_> {
                 LdIndexed => self.format_ld_indexed(),
                 Ld(reg) => format!("ld {reg}, {}", self.format_op_for_reg(reg)),
                 LdIndirect => self.format_ld_indirect(),
-                LdReg => self.format_ld_reg(),
+                LdReg => self.format_reg_reg("ld"),
                 Lsr => self.format_lsr_imm(),
-                LsrReg => self.format_lsr_reg(),
+                LsrReg => self.format_reg_reg("lsr"),
                 Nop => "nop".into(),
                 Pop(reg) => format!("pop {reg}"),
                 PopPS => "pop ps".into(),
@@ -859,17 +869,6 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Disassembles a `ld R1, R2` instruction.
-    fn format_ld_reg(&mut self) -> String {
-        if let Some(&regs) = self.code.next()
-            && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
-        {
-            format!("ld {target}, {source}")
-        } else {
-            "??? (no operand)".to_owned()
-        }
-    }
-
     /// Disassembles a `lsr R, S` instruction.
     fn format_lsr_imm(&mut self) -> String {
         if let Some(&encoded) = self.code.next()
@@ -881,23 +880,23 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Disassembles a `lsr R1, R2` instruction.
-    fn format_lsr_reg(&mut self) -> String {
-        if let Some(&regs) = self.code.next()
-            && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
-        {
-            format!("lsr {target}, {source}")
-        } else {
-            "??? (no operand)".to_owned()
-        }
-    }
-
     /// Reads an operand for `reg` and formats it for display.
     fn format_op_for_reg(&mut self, reg: Reg) -> String {
         if reg.is16() {
             self.format_word()
         } else {
             self.format_byte()
+        }
+    }
+
+    /// Disassembles an `X R1, R2` instruction.
+    fn format_reg_reg(&mut self, name: &str) -> String {
+        if let Some(&regs) = self.code.next()
+            && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
+        {
+            format!("{name} {target}, {source}")
+        } else {
+            "??? (no operand)".to_owned()
         }
     }
 
@@ -1535,6 +1534,8 @@ mod tests {
             ("add a, 0x01", &[u8::from(Add(A)), 0x01]),
             ("add sp, 0x0104", &[u8::from(Add(SP)), 0x04, 0x01]),
             ("and a, 0x01", &[u8::from(And(A)), 0x01]),
+            ("add a, b", &[u8::from(AddReg), 0x10]),
+            ("add cd, ef", &[u8::from(AddReg), 0xA9]),
             ("bcc 0x10", &[u8::from(BranchCc), 0x10]),
             ("bcs 0x10", &[u8::from(BranchCs), 0x10]),
             ("beq 0xF0", &[u8::from(BranchEq), 0xF0]),
@@ -1596,6 +1597,7 @@ mod tests {
             "add",
             "add a",
             "add a, cd",
+            "add ab, c",
             "add ab, 0xFF",
             "add sp",
             "and",

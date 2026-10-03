@@ -227,6 +227,29 @@ impl Cpu {
         }
     }
 
+    /// Add register with carry.
+    pub fn add_reg(&mut self, bus: &mut Bus) {
+        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
+            if target.is16() {
+                let augend = self.regs.get16(target);
+                let addend = self.regs.get16(source);
+                let (result, carry) = add16(augend, addend, self.flags.carry);
+                self.regs.set16(target, result);
+                self.flags.update16(result);
+                self.flags.carry = carry;
+            } else {
+                let augend = self.regs.get(target);
+                let addend = self.regs.get(source);
+                let (result, carry) = add(augend, addend, self.flags.carry);
+                self.regs.set(target, result);
+                self.flags.update(result);
+                self.flags.carry = carry;
+            }
+        } else {
+            self.trap(TRAP_ILLEGAL, bus);
+        }
+    }
+
     /// Bitwise AND.
     pub fn and_imm(&mut self, target: Reg) {
         if target.is16() {
@@ -319,6 +342,7 @@ impl Cpu {
         use InstructionKind::*;
         match ins {
             Add(reg) => self.add(reg),
+            AddReg => self.add_reg(bus),
             And(reg) => self.and_imm(reg),
             BranchAlways => self.branch(),
             BranchCc if !self.flags.carry => self.branch(),
