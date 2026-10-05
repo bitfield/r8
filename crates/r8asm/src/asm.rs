@@ -26,7 +26,7 @@ pub const BASE: u16 = 0x0100;
 pub const KEYWORDS: &[&str] = &[
     "add", "and", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cmp", "data",
     "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "org", "pop", "push", "ret", "rti", "sec",
-    "sub", "trap",
+    "sub", "test", "trap",
 ];
 
 /// Assembles a given source program.
@@ -103,6 +103,7 @@ impl Assembler {
             "rti" => self.emit_byte(u8::from(Rti)),
             "sec" => self.emit_byte(u8::from(Sec)),
             "sub" => self.gen_sub(),
+            "test" => self.gen_test(),
             "trap" => self.gen_trap(),
             _ => unreachable!("unknown keyword '{kw}'"),
         }
@@ -668,6 +669,33 @@ impl Assembler {
         }
     }
 
+    /// Generates a `test` instruction.
+    ///
+    /// # Errors
+    ///
+    /// * Missing register name.
+    /// * Missing comma.
+    /// * Missing or mis-sized operand.
+    pub fn gen_test(&mut self) -> Result<()> {
+        let target = self.expect_reg()?;
+        self.expect(&Comma)?;
+        match self.next_token()? {
+            ByteLiteral(addend) if !target.is16() => {
+                self.emit_byte(u8::from(Test(target)))?;
+                self.emit_byte(addend)
+            }
+            WordLiteral(addend) if target.is16() => {
+                self.emit_byte(u8::from(Test(target)))?;
+                self.emit_word(addend)
+            }
+            Register(source) if source.is16() == target.is16() => {
+                self.emit_byte(u8::from(TestReg))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))
+            }
+            other => bail!("expected same-size immediate value or register name, got '{other}'"),
+        }
+    }
+
     /// Generates a `trap T` instruction.
     ///
     /// # Errors
@@ -814,8 +842,8 @@ impl Iterator for Disassembler<'_> {
                 IncIndirect => self.format_inc_indirect(),
                 IncMem => format!("inc ({})", self.format_word()),
                 Jmp => format!("jmp {}", self.format_word()),
-                LdIndexed => self.format_ld_indexed(),
                 Ld(reg) => self.format_reg_imm("ld", reg),
+                LdIndexed => self.format_ld_indexed(),
                 LdIndirect => self.format_ld_indirect(),
                 LdReg => self.format_reg_reg("ld"),
                 Lsr => self.format_lsr_imm(),
@@ -834,6 +862,8 @@ impl Iterator for Disassembler<'_> {
                 StoreIndirectImm => self.format_store_indirect_imm(),
                 Sub(reg) => self.format_reg_imm("sub", reg),
                 SubReg => self.format_reg_reg("sub"),
+                Test(reg) => self.format_reg_imm("test", reg),
+                TestReg => self.format_reg_reg("test"),
                 Trap => format!("trap {}", self.format_byte()),
             }
         } else {
@@ -1621,6 +1651,9 @@ mod tests {
             ("sub b, c", &[u8::from(SubReg), 0x21]),
             ("sub cd, 0x0104", &[u8::from(Sub(CD)), 0x04, 0x01]),
             ("sub sp, ef", &[u8::from(SubReg), 0xAC]),
+            ("test a, 0x01", &[u8::from(Test(A)), 0x01]),
+            ("test cd, 0xFFFE", &[u8::from(Test(CD)), 0xFE, 0xFF]),
+            ("test b, h", &[u8::from(TestReg), 0x71]),
             ("trap 0x01", &[u8::from(Trap), 0x01]),
         ];
         for &(source, object) in cases {
@@ -1721,6 +1754,11 @@ mod tests {
             "sub a, cd",
             "sub ab, 0xFF",
             "sub sp, a",
+            "test",
+            "test ab, 0xFF",
+            "test cd, a",
+            "test a, 0x1000",
+            "test 0x01, 0x0F",
             "trap 0x40",
             "trap 0xFF",
             "trap a",

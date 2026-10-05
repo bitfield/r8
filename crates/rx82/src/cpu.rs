@@ -425,6 +425,8 @@ impl Cpu {
             StoreIndirectImm => self.store_indirect_imm(bus),
             Sub(reg) => self.sub(reg),
             SubReg => self.sub_reg(bus),
+            Test(reg) => self.test_imm(reg),
+            TestReg => self.test_reg(bus),
             Trap => self.trap(self.op_lo, bus),
             Nop | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe | BranchPl => {}
         }
@@ -726,6 +728,40 @@ impl Cpu {
                 self.regs.set(target, result);
                 self.flags.update(result);
                 self.flags.carry = carry;
+            }
+        } else {
+            self.trap(TRAP_ILLEGAL, bus);
+        }
+    }
+
+    /// Test bits immediate.
+    pub fn test_imm(&mut self, target: Reg) {
+        if target.is16() {
+            let input = self.regs.get16(target);
+            let mask = self.op();
+            let result = and16(input, mask);
+            self.flags.update16(result);
+        } else {
+            let input = self.regs.get(target);
+            let mask = self.op_lo;
+            let result = and(input, mask);
+            self.flags.update(result);
+        }
+    }
+
+    /// Test bits register.
+    pub fn test_reg(&mut self, bus: &mut Bus) {
+        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
+            if target.is16() {
+                let input = self.regs.get16(target);
+                let mask = self.regs.get16(source);
+                let result = and16(input, mask);
+                self.flags.update16(result);
+            } else {
+                let input = self.regs.get(target);
+                let mask = self.regs.get(source);
+                let result = and(input, mask);
+                self.flags.update(result);
             }
         } else {
             self.trap(TRAP_ILLEGAL, bus);
@@ -1298,6 +1334,33 @@ mod tests {
                 if case.output == 0 { "set" } else { "cleared" }
             );
         }
+    }
+
+    #[test]
+    fn and_reg() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld a, 0x01
+                ld h, 0x10
+                and a, h
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
+        assert_eq!(sys.cpu.flags.zero, true, "zero clear: zero result");
+    }
+
+    #[test]
+    fn and16() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld ab, 0xFFF0
+                and ab, 0x0A01
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0A00, "wrong AB");
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
     }
 
     #[test]
@@ -2549,6 +2612,51 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(AB), 0x0101, "wrong AB");
+    }
+
+    #[test]
+    fn testbits_reg() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld a, 0x01
+                ld h, 0x10
+                test a, h
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0x01, "A affected");
+        assert_eq!(sys.cpu.flags.zero, true, "zero clear: zero result");
+        sys.test_asm(
+            "
+                ld gh, 0x0101
+                ld ef, 0x1001
+                test gh, ef
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(GH), 0x0101, "GH affected");
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
+    }
+
+    #[test]
+    fn testbits_imm() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld ab, 0xFFF0
+                ld h, 0x00 ; set zero flag
+                test ab, 0x0A01
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0xFFF0, "AB affected");
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
+        sys.test_asm(
+            "
+                ld a, 0xF0
+                test a, 0x01
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0xF0, "A affected");
+        assert_eq!(sys.cpu.flags.zero, true, "zero clear: zero result");
     }
 
     #[test]

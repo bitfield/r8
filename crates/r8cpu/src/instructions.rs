@@ -95,6 +95,10 @@ pub enum InstructionKind {
     Sub(Reg),
     /// Subtract register.
     SubReg,
+    /// Test bits immediate.
+    Test(Reg),
+    /// Test bits register.
+    TestReg,
     /// Trap with a specified code.
     Trap,
 }
@@ -150,6 +154,8 @@ impl Display for InstructionKind {
                 StoreIndirectImm => "ld (RR), N".to_owned(),
                 Sub(reg) => format!("sub {reg}, N"),
                 SubReg => "sub R1, R2".to_owned(),
+                Test(reg) => format!("test {reg}, N"),
+                TestReg => "test R1, R2".to_owned(),
                 Trap => "trap T".to_owned(),
             }
         )
@@ -190,6 +196,8 @@ impl TryFrom<u8> for InstructionKind {
             0x7F => CmpReg,
             0x80..=0x8C => And(reg?),
             0x8F => AndReg,
+            0x90..=0x9C => Test(reg?),
+            0x9F => TestReg,
             0xC2 => Lsr,
             0xC3 => LsrReg,
             0xD0..=0xDB => Push(reg?),
@@ -257,6 +265,8 @@ impl From<InstructionKind> for u8 {
             StoreIndirectImm => 0x29,
             Sub(reg) => 0x60 | u8::from(reg),
             SubReg => 0x6F,
+            Test(reg) => 0x90 | u8::from(reg),
+            TestReg => 0x9F,
             Trap => 0xF9,
         }
     }
@@ -270,10 +280,10 @@ impl InstructionKind {
         match *self {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
-            AddReg | And(_) | AndReg | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
+            AddReg | AndReg | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
             | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect | LdReg
-            | Lsr | LsrReg | StoreIndirect | SubReg | Trap => One,
-            Add(reg) | Cmp(reg) | Ld(reg) | Sub(reg) => {
+            | Lsr | LsrReg | StoreIndirect | SubReg | TestReg | Trap => One,
+            Add(reg) | And(reg) | Cmp(reg) | Ld(reg) | Sub(reg) | Test(reg) => {
                 if reg.is16() {
                     Two
                 } else {
