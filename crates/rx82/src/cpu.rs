@@ -250,7 +250,7 @@ impl Cpu {
         }
     }
 
-    /// Bitwise AND.
+    /// And immediate.
     pub fn and_imm(&mut self, target: Reg) {
         if target.is16() {
             let input = self.regs.get16(target);
@@ -264,6 +264,27 @@ impl Cpu {
             let result = and(input, mask);
             self.regs.set(target, result);
             self.flags.update(result);
+        }
+    }
+
+    /// And register.
+    pub fn and_reg(&mut self, bus: &mut Bus) {
+        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
+            if target.is16() {
+                let input = self.regs.get16(target);
+                let mask = self.regs.get16(source);
+                let result = and16(input, mask);
+                self.regs.set16(target, result);
+                self.flags.update16(result);
+            } else {
+                let input = self.regs.get(target);
+                let mask = self.regs.get(source);
+                let result = and(input, mask);
+                self.regs.set(target, result);
+                self.flags.update(result);
+            }
+        } else {
+            self.trap(TRAP_ILLEGAL, bus);
         }
     }
 
@@ -365,6 +386,7 @@ impl Cpu {
             Add(reg) => self.add(reg),
             AddReg => self.add_reg(bus),
             And(reg) => self.and_imm(reg),
+            AndReg => self.and_reg(bus),
             BranchAlways => self.branch(),
             BranchCc if !self.flags.carry => self.branch(),
             BranchCs if self.flags.carry => self.branch(),

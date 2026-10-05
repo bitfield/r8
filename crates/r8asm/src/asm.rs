@@ -259,7 +259,7 @@ impl Assembler {
         }
     }
 
-    /// Generates an `and R, N` instruction.
+    /// Generates an `and` instruction.
     ///
     /// # Errors
     ///
@@ -267,14 +267,23 @@ impl Assembler {
     /// * Missing comma.
     /// * Missing or mis-sized operand.
     pub fn gen_and(&mut self) -> Result<()> {
-        let reg = self.expect_reg8()?;
+        let target = self.expect_reg()?;
         self.expect(&Comma)?;
-        self.emit_byte(u8::from(And(reg)))?;
-        let operand = self.expect_op_for_reg(reg)?;
-        for byte in operand {
-            self.emit_byte(byte)?;
+        match self.next_token()? {
+            ByteLiteral(addend) if !target.is16() => {
+                self.emit_byte(u8::from(And(target)))?;
+                self.emit_byte(addend)
+            }
+            WordLiteral(addend) if target.is16() => {
+                self.emit_byte(u8::from(And(target)))?;
+                self.emit_word(addend)
+            }
+            Register(source) if source.is16() == target.is16() => {
+                self.emit_byte(u8::from(AndReg))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))
+            }
+            other => bail!("expected same-size immediate value or register name, got '{other}'"),
         }
-        Ok(())
     }
 
     /// Generates a branch instruction of kind `kind`.
@@ -782,9 +791,10 @@ impl Iterator for Disassembler<'_> {
         let &opcode = self.code.next()?;
         Some(if let Ok(ins) = InstructionKind::try_from(opcode) {
             match ins {
-                Add(reg) => format!("add {reg}, {}", self.format_op_for_reg(reg)),
+                Add(reg) => self.format_reg_imm("add", reg),
                 AddReg => self.format_reg_reg("add"),
-                And(reg) => format!("and {reg}, {}", self.format_byte()),
+                And(reg) => self.format_reg_imm("and", reg),
+                AndReg => self.format_reg_reg("and"),
                 BranchAlways => format!("bra {}", self.format_byte()),
                 BranchCc => format!("bcc {}", self.format_byte()),
                 BranchCs => format!("bcs {}", self.format_byte()),
@@ -794,7 +804,7 @@ impl Iterator for Disassembler<'_> {
                 BranchPl => format!("bpl {}", self.format_byte()),
                 Call => format!("call {}", self.format_word()),
                 Clc => "clc".into(),
-                Cmp(reg) => format!("cmp {reg}, {}", self.format_op_for_reg(reg)),
+                Cmp(reg) => self.format_reg_imm("cmp", reg),
                 CmpReg => self.format_reg_reg("cmp"),
                 Dec(reg) => format!("dec {reg}"),
                 DecIndirect => self.format_dec_indirect(),
@@ -805,7 +815,7 @@ impl Iterator for Disassembler<'_> {
                 IncMem => format!("inc ({})", self.format_word()),
                 Jmp => format!("jmp {}", self.format_word()),
                 LdIndexed => self.format_ld_indexed(),
-                Ld(reg) => format!("ld {reg}, {}", self.format_op_for_reg(reg)),
+                Ld(reg) => self.format_reg_imm("ld", reg),
                 LdIndirect => self.format_ld_indirect(),
                 LdReg => self.format_reg_reg("ld"),
                 Lsr => self.format_lsr_imm(),
@@ -822,7 +832,7 @@ impl Iterator for Disassembler<'_> {
                 StoreIndexed => self.format_store_indexed(),
                 StoreIndirect => self.format_store_indirect(),
                 StoreIndirectImm => self.format_store_indirect_imm(),
-                Sub(reg) => format!("sub {reg}, {}", self.format_op_for_reg(reg)),
+                Sub(reg) => self.format_reg_imm("sub", reg),
                 SubReg => self.format_reg_reg("sub"),
                 Trap => format!("trap {}", self.format_byte()),
             }
@@ -907,6 +917,11 @@ impl<'code> Disassembler<'code> {
         } else {
             self.format_byte()
         }
+    }
+
+    /// Disassembles an `X R, N` instruction.
+    fn format_reg_imm(&mut self, name: &str, reg: Reg) -> String {
+        format!("{name} {reg}, {}", self.format_op_for_reg(reg))
     }
 
     /// Disassembles an `X R1, R2` instruction.
@@ -1554,6 +1569,8 @@ mod tests {
             ("add a, 0x01", &[u8::from(Add(A)), 0x01]),
             ("add sp, 0x0104", &[u8::from(Add(SP)), 0x04, 0x01]),
             ("and a, 0x01", &[u8::from(And(A)), 0x01]),
+            ("and cd, 0xFFFE", &[u8::from(And(CD)), 0xFE, 0xFF]),
+            ("and ab, cd", &[u8::from(AndReg), 0x98]),
             ("add a, b", &[u8::from(AddReg), 0x10]),
             ("add cd, ef", &[u8::from(AddReg), 0xA9]),
             ("bcc 0x10", &[u8::from(BranchCc), 0x10]),
@@ -1626,7 +1643,7 @@ mod tests {
             "add sp",
             "and",
             "and ab, 0xFF",
-            "and cd, 0xC0DE",
+            "and cd, a",
             "and a, 0x1000",
             "and 0x01, 0x0F",
             "bcc",

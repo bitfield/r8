@@ -11,8 +11,10 @@ pub enum InstructionKind {
     Add(Reg),
     /// Add register.
     AddReg,
-    /// Bitwise immediate AND.
+    /// And immediate.
     And(Reg),
+    /// And register.
+    AndReg,
     /// Branch always.
     BranchAlways,
     /// Branch if the carry flag is clear.
@@ -108,6 +110,7 @@ impl Display for InstructionKind {
                 Add(reg) => format!("add {reg}, N"),
                 AddReg => "add R1, R2".to_owned(),
                 And(reg) => format!("and {reg}, N"),
+                AndReg => "and R1, R2".to_owned(),
                 BranchAlways => "bra D".to_owned(),
                 BranchCc => "bcc D".to_owned(),
                 BranchCs => "bcs D".to_owned(),
@@ -185,7 +188,8 @@ impl TryFrom<u8> for InstructionKind {
             0x6F => SubReg,
             0x70..=0x7C => Cmp(reg?),
             0x7F => CmpReg,
-            0x80..=0x87 => And(reg?),
+            0x80..=0x8C => And(reg?),
+            0x8F => AndReg,
             0xC2 => Lsr,
             0xC3 => LsrReg,
             0xD0..=0xDB => Push(reg?),
@@ -213,6 +217,7 @@ impl From<InstructionKind> for u8 {
             Add(reg) => 0x50 | u8::from(reg),
             AddReg => 0x5F,
             And(reg) => 0x80 | u8::from(reg),
+            AndReg => 0x8F,
             BranchAlways => 0xF0,
             BranchCc => 0xF4,
             BranchCs => 0xF3,
@@ -265,7 +270,7 @@ impl InstructionKind {
         match *self {
             Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
             | Sec => Zero,
-            AddReg | And(_) | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
+            AddReg | And(_) | AndReg | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
             | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect | LdReg
             | Lsr | LsrReg | StoreIndirect | SubReg | Trap => One,
             Add(reg) | Cmp(reg) | Ld(reg) | Sub(reg) => {
