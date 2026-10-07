@@ -26,7 +26,7 @@ pub const BASE: u16 = 0x0100;
 pub const KEYWORDS: &[&str] = &[
     "add", "and", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cmp", "data",
     "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "org", "pop", "push", "ret", "rti", "sec",
-    "sub", "test", "trap",
+    "shl", "sub", "test", "trap",
 ];
 
 /// Assembles a given source program.
@@ -94,7 +94,7 @@ impl Assembler {
             "inc" => self.gen_inc(),
             "jmp" => self.gen_jmp(),
             "ld" => self.gen_ld_or_store(),
-            "lsr" => self.gen_lsr(),
+            "lsr" => self.gen_shift(Lsr, LsrReg),
             "nop" => self.emit_byte(u8::from(Nop)),
             "org" => self.org(),
             "pop" => self.gen_pop(),
@@ -102,6 +102,7 @@ impl Assembler {
             "ret" => self.emit_byte(u8::from(Ret)),
             "rti" => self.emit_byte(u8::from(Rti)),
             "sec" => self.emit_byte(u8::from(Sec)),
+            "shl" => self.gen_shift(Shl, ShlReg),
             "sub" => self.gen_sub(),
             "test" => self.gen_test(),
             "trap" => self.gen_trap(),
@@ -539,27 +540,6 @@ impl Assembler {
         self.emit_byte(u8::from(RegToReg { source, target }))
     }
 
-    /// Generates an `lsr` instruction.
-    ///
-    /// # Errors
-    ///
-    /// * Syntax errors.
-    pub fn gen_lsr(&mut self) -> Result<()> {
-        let target = self.expect_reg()?;
-        self.expect(&Comma)?;
-        match self.next_token()? {
-            ByteLiteral(shift) => {
-                self.emit_byte(u8::from(Lsr))?;
-                self.emit_byte(u8::from(ShiftReg { shift, target }))
-            }
-            Register(source) if !source.is16() => {
-                self.emit_byte(u8::from(LsrReg))?;
-                self.emit_byte(u8::from(RegToReg { source, target }))
-            }
-            other => bail!("expected shift count or 8-bit register name, got '{other}'"),
-        }
-    }
-
     /// Generates a `pop R` instruction.
     ///
     /// # Errors
@@ -583,6 +563,31 @@ impl Assembler {
             Identifier(id) if id == "ps" => self.emit_byte(u8::from(PushPS)),
             Register(reg) => self.emit_byte(u8::from(Push(reg))),
             other => bail!("expected register name, got {other}"),
+        }
+    }
+
+    /// Generates a shift/rotate instruction.
+    ///
+    /// # Errors
+    ///
+    /// * Syntax errors.
+    pub fn gen_shift(
+        &mut self,
+        imm_kind: InstructionKind,
+        reg_kind: InstructionKind,
+    ) -> Result<()> {
+        let target = self.expect_reg()?;
+        self.expect(&Comma)?;
+        match self.next_token()? {
+            ByteLiteral(shift) => {
+                self.emit_byte(u8::from(imm_kind))?;
+                self.emit_byte(u8::from(ShiftReg { shift, target }))
+            }
+            Register(source) if !source.is16() => {
+                self.emit_byte(u8::from(reg_kind))?;
+                self.emit_byte(u8::from(RegToReg { source, target }))
+            }
+            other => bail!("expected shift count or 8-bit register name, got '{other}'"),
         }
     }
 
@@ -846,7 +851,7 @@ impl Iterator for Disassembler<'_> {
                 LdIndexed => self.format_ld_indexed(),
                 LdIndirect => self.format_ld_indirect(),
                 LdReg => self.format_reg_reg("ld"),
-                Lsr => self.format_lsr_imm(),
+                Lsr => self.format_shift_imm("lsr"),
                 LsrReg => self.format_reg_reg("lsr"),
                 Nop => "nop".into(),
                 Pop(reg) => format!("pop {reg}"),
@@ -856,6 +861,8 @@ impl Iterator for Disassembler<'_> {
                 Ret => "ret".into(),
                 Rti => "rti".into(),
                 Sec => "sec".into(),
+                Shl => self.format_shift_imm("shl"),
+                ShlReg => self.format_reg_reg("shl"),
                 Store(reg) => format!("ld {}, {reg}", self.format_word()),
                 StoreIndexed => self.format_store_indexed(),
                 StoreIndirect => self.format_store_indirect(),
@@ -929,17 +936,6 @@ impl<'code> Disassembler<'code> {
         }
     }
 
-    /// Disassembles a `lsr R, S` instruction.
-    fn format_lsr_imm(&mut self) -> String {
-        if let Some(&encoded) = self.code.next()
-            && let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(encoded)
-        {
-            format!("lsr {target}, {shift:#04X}")
-        } else {
-            "??? (no operand)".to_owned()
-        }
-    }
-
     /// Reads an operand for `reg` and formats it for display.
     fn format_op_for_reg(&mut self, reg: Reg) -> String {
         if reg.is16() {
@@ -960,6 +956,17 @@ impl<'code> Disassembler<'code> {
             && let Ok(RegToReg { source, target }) = RegToReg::try_from(regs)
         {
             format!("{name} {target}, {source}")
+        } else {
+            "??? (no operand)".to_owned()
+        }
+    }
+
+    /// Disassembles a shift/rotate `X R, S` instruction.
+    fn format_shift_imm(&mut self, name: &str) -> String {
+        if let Some(&encoded) = self.code.next()
+            && let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(encoded)
+        {
+            format!("{name} {target}, {shift:#04X}")
         } else {
             "??? (no operand)".to_owned()
         }
@@ -1647,6 +1654,8 @@ mod tests {
             ("ret", &[u8::from(Ret)]),
             ("rti", &[u8::from(Rti)]),
             ("sec", &[u8::from(Sec)]),
+            ("shl ef, 0x04", &[u8::from(Shl), 0x4A]),
+            ("shl cd, a", &[u8::from(ShlReg), 0x09]),
             ("sub a, 0x01", &[u8::from(Sub(A)), 0x01]),
             ("sub b, c", &[u8::from(SubReg), 0x21]),
             ("sub cd, 0x0104", &[u8::from(Sub(CD)), 0x04, 0x01]),
@@ -1749,6 +1758,11 @@ mod tests {
             "ret cd",
             "rti 0x0100",
             "sec ab",
+            "shl",
+            "shl a",
+            "shl ab, 0x0002",
+            "shl ab, cd",
+            "shl 0x0000, cd",
             "sub",
             "sub a",
             "sub a, cd",

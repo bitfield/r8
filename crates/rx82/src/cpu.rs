@@ -1,7 +1,10 @@
 use r8cpu::{
     flags::Flags,
     instructions::{InstructionKind, Operands},
-    logic::{add, add16, and, and16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, sub, sub16},
+    logic::{
+        add, add16, and, and16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, shl, shl16, sub,
+        sub16,
+    },
     regs::{Reg, RegToReg, Regs, ShiftReg},
 };
 
@@ -410,8 +413,8 @@ impl Cpu {
             Ld(reg) => self.ld_imm(reg),
             LdIndirect => self.ld_indirect(bus),
             LdReg => self.ld_reg(bus),
-            Lsr => self.lsr_imm(bus),
-            LsrReg => self.lsr_reg(bus),
+            Lsr => self.shift_imm(lsr, lsr16, bus),
+            LsrReg => self.shift_reg(lsr, lsr16, bus),
             Pop(reg) => self.pop(reg, bus),
             PopPS => self.pop_ps(bus),
             Push(reg) => self.push(reg, bus),
@@ -419,6 +422,8 @@ impl Cpu {
             Ret => self.ret(bus),
             Rti => self.rti(bus),
             Sec => self.flags.carry = true,
+            Shl => self.shift_imm(shl, shl16, bus),
+            ShlReg => self.shift_reg(shl, shl16, bus),
             Store(reg) => self.store_direct(reg, bus),
             StoreIndexed => self.store_indexed(bus),
             StoreIndirect => self.store_indirect(bus),
@@ -536,44 +541,6 @@ impl Cpu {
         }
     }
 
-    /// Logical shift right the `target` register by `shift` bits.
-    pub fn lsr(&mut self, target: Reg, shift: u8) {
-        if target.is16() {
-            let input = self.regs.get16(target);
-            let (result, carry) = lsr16(input, shift);
-            self.regs.set16(target, result);
-            self.flags.update16(result);
-            self.flags.carry = carry;
-        } else {
-            let input = self.regs.get(target);
-            let (result, carry) = lsr(input, shift);
-            self.regs.set(target, result);
-            self.flags.update(result);
-            self.flags.carry = carry;
-        }
-    }
-
-    /// Logical shift right the target register by the operand shift.
-    pub fn lsr_imm(&mut self, bus: &mut Bus) {
-        let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(self.op_lo) else {
-            self.trap(TRAP_ILLEGAL, bus);
-            return;
-        };
-        self.lsr(target, shift);
-    }
-
-    /// Logical shift right the target register by the contents of the source register.
-    pub fn lsr_reg(&mut self, bus: &mut Bus) {
-        let (target, shift) = match RegToReg::try_from(self.op_lo) {
-            Ok(RegToReg { source, target }) if !source.is16() => (target, self.regs.get(source)),
-            _ => {
-                self.trap(TRAP_ILLEGAL, bus);
-                return;
-            }
-        };
-        self.lsr(target, shift);
-    }
-
     /// Returns the 16-bit value of the two operand registers.
     #[must_use]
     pub fn op(&self) -> u16 {
@@ -638,6 +605,56 @@ impl Cpu {
         self.inc(Reg::SP); // skip trap code
         self.stack_pop(bus);
         self.state = WaitFlags;
+    }
+
+    /// Shift/rotate.
+    pub fn shift<F8, F16>(&mut self, f8: F8, f16: F16, target: Reg, shift: u8)
+    where
+        F8: FnOnce(u8, u8) -> (u8, bool),
+        F16: FnOnce(u16, u8) -> (u16, bool),
+    {
+        if target.is16() {
+            let input = self.regs.get16(target);
+            let (result, carry) = f16(input, shift);
+            self.regs.set16(target, result);
+            self.flags.update16(result);
+            self.flags.carry = carry;
+        } else {
+            let input = self.regs.get(target);
+            let (result, carry) = f8(input, shift);
+            self.regs.set(target, result);
+            self.flags.update(result);
+            self.flags.carry = carry;
+        }
+    }
+
+    /// Shift/rotate the target register by the operand shift.
+    pub fn shift_imm<F8, F16>(&mut self, f8: F8, f16: F16, bus: &mut Bus)
+    where
+        F8: FnOnce(u8, u8) -> (u8, bool),
+        F16: FnOnce(u16, u8) -> (u16, bool),
+    {
+        let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(self.op_lo) else {
+            self.trap(TRAP_ILLEGAL, bus);
+            return;
+        };
+        self.shift(f8, f16, target, shift);
+    }
+
+    /// Shift/rotate the target register by the contents of the source register.
+    pub fn shift_reg<F8, F16>(&mut self, f8: F8, f16: F16, bus: &mut Bus)
+    where
+        F8: FnOnce(u8, u8) -> (u8, bool),
+        F16: FnOnce(u16, u8) -> (u16, bool),
+    {
+        let (target, shift) = match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if !source.is16() => (target, self.regs.get(source)),
+            _ => {
+                self.trap(TRAP_ILLEGAL, bus);
+                return;
+            }
+        };
+        self.shift(f8, f16, target, shift);
     }
 
     /// Reads the current top-of-stack value, adjusting SP.
@@ -2418,6 +2435,145 @@ mod tests {
                 sec",
         );
         assert_eq!(sys.cpu.flags.carry, true, "carry not set");
+    }
+
+    #[test]
+    #[expect(clippy::arbitrary_source_item_ordering, reason = "logical ordering")]
+    fn shl() {
+        use InstructionKind::Shl;
+        struct Case {
+            name: &'static str,
+            carry_in: bool,
+            input: u8,
+            shift: u8,
+            output: u8,
+            carry_out: bool,
+        }
+        let cases: &[Case] = &[
+            Case {
+                name: "shifts correctly",
+                carry_in: false,
+                input: 0x0F,
+                shift: 0x04,
+                output: 0xF0,
+                carry_out: false,
+            },
+            Case {
+                name: "sets carry",
+                carry_in: true,
+                input: 0x77,
+                shift: 0x02,
+                output: 0xDC,
+                carry_out: true,
+            },
+            Case {
+                name: "clears carry",
+                carry_in: true,
+                input: 0xE2,
+                shift: 0x04,
+                output: 0x20,
+                carry_out: false,
+            },
+            Case {
+                name: "min shift == 1",
+                carry_in: false,
+                input: 0x01,
+                shift: 0x00,
+                output: 0x02,
+                carry_out: false,
+            },
+            Case {
+                name: "max shift == 8",
+                carry_in: false,
+                input: 0xF1,
+                shift: 0xFF,
+                output: 0x00,
+                carry_out: true,
+            },
+            Case {
+                name: "shift 8, no carry",
+                carry_in: true,
+                input: 0x7E,
+                shift: 0x08,
+                output: 0x00,
+                carry_out: false,
+            },
+            Case {
+                name: "shift 8, carry",
+                carry_in: false,
+                input: 0xFF,
+                shift: 0x08,
+                output: 0x00,
+                carry_out: true,
+            },
+        ];
+        let mut sys = System::default();
+        for case in cases {
+            sys.cpu.flags.carry = case.carry_in;
+            sys.cpu.regs.set(A, case.input);
+            sys.test_prog(&[
+                u8::from(Shl),
+                u8::from(ShiftReg {
+                    shift: case.shift,
+                    target: A,
+                }),
+            ]);
+            assert_hex!(
+                sys.cpu.regs.get(A),
+                case.output,
+                format!("{}: wrong A", case.name)
+            );
+            assert_eq!(
+                sys.cpu.flags.carry,
+                case.carry_out,
+                "{}: carry not {}",
+                case.name,
+                if case.carry_out { "set" } else { "cleared" }
+            );
+            assert_eq!(
+                sys.cpu.flags.negative,
+                case.output & 0x80 != 0,
+                "{}: negative not {}",
+                case.name,
+                if case.output & 0x80 != 0 {
+                    "set"
+                } else {
+                    "cleared"
+                }
+            );
+            assert_eq!(
+                sys.cpu.flags.zero,
+                case.output == 0,
+                "{}: zero not {}",
+                case.name,
+                if case.output == 0 { "set" } else { "cleared" }
+            );
+        }
+    }
+
+    #[test]
+    fn shl16() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld ab, 0x0081
+                shl ab, 0x09
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0200, "wrong AB");
+    }
+
+    #[test]
+    fn shl_reg() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "
+                ld ab, 0x0100
+                ld c, 0x01
+                shl ab, c
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0200, "wrong AB");
     }
 
     #[test]

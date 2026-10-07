@@ -82,6 +82,10 @@ pub enum InstructionKind {
     Rti,
     /// Set carry flag.
     Sec,
+    /// Shift left immediate.
+    Shl,
+    /// Shift left register.
+    ShlReg,
     /// Store a register value at an immediate address.
     Store(Reg),
     /// Store a register at an indirect address in another register, indexed by an
@@ -148,6 +152,8 @@ impl Display for InstructionKind {
                 Ret => "ret".to_owned(),
                 Rti => "rti".to_owned(),
                 Sec => "sec".to_owned(),
+                Shl => "shl R, S".to_owned(),
+                ShlReg => "shl R1, R2".to_owned(),
                 Store(reg) => format!("ld NN, {reg}"),
                 StoreIndexed => "ld (RR+N), R".to_owned(),
                 StoreIndirect => "ld (RR), R".to_owned(),
@@ -198,6 +204,8 @@ impl TryFrom<u8> for InstructionKind {
             0x8F => AndReg,
             0x90..=0x9C => Test(reg?),
             0x9F => TestReg,
+            0xC0 => Shl,
+            0xC1 => ShlReg,
             0xC2 => Lsr,
             0xC3 => LsrReg,
             0xD0..=0xDB => Push(reg?),
@@ -259,6 +267,8 @@ impl From<InstructionKind> for u8 {
             Ret => 0x08,
             Rti => 0x09,
             Sec => 0x03,
+            Shl => 0xC0,
+            ShlReg => 0xC1,
             Store(reg) => 0x20 | u8::from(reg),
             StoreIndexed => 0x2F,
             StoreIndirect => 0x28,
@@ -282,7 +292,7 @@ impl InstructionKind {
             | Sec => Zero,
             AddReg | AndReg | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
             | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect | LdReg
-            | Lsr | LsrReg | StoreIndirect | SubReg | TestReg | Trap => One,
+            | Lsr | LsrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg | Trap => One,
             Add(reg) | And(reg) | Cmp(reg) | Ld(reg) | Sub(reg) | Test(reg) => {
                 if reg.is16() {
                     Two

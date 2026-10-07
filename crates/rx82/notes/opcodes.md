@@ -12,7 +12,7 @@
 | 9- | test a, N | test b, N | test c, N | test d, N | test e, N | test f, N | test g, N | test h, N | test ab, N | test cd, N | test ef, N | test gh, N | test sp, N | | | test R1, R2 |
 | A- | | | | | | | | | | | | | | | | |
 | B- | | | | | | | | | | | | | | | | |
-| C- | | | lsr R, S | lsr R1, R2 | | | | | | | | | | | | |
+| C- | shl R, S | shl R1, R2 | lsr R, S | lsr R1, R2 | | | | | | | | | | | | |
 | D- | push a | push b | push c | push d | push e | push f | push g | push h | push ab | push cd | push ef | push gh | push ps | | | |
 | E- | pop a | pop b | pop c | pop d | pop e | pop f | pop g | pop h | pop ab | pop cd | pop ef | pop gh | pop ps | | | |
 | F- | bra D | beq D | bne D | bcs D | bcc D | bmi D | bpl D | jmp NN | call NN | trap T | | | | | | |

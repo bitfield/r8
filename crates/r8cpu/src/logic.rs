@@ -60,7 +60,7 @@ pub fn inc16(input: u16) -> u16 {
 pub fn lsr(input: u8, mut shift: u8) -> (u8, bool) {
     shift = shift.clamp(1, 8);
     let value = input.unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
-    let carry = (value & 1) == 1;
+    let carry = (value & 1) != 0;
     let result = value.unbounded_shr(1);
     (result, carry)
 }
@@ -69,8 +69,26 @@ pub fn lsr(input: u8, mut shift: u8) -> (u8, bool) {
 pub fn lsr16(input: u16, mut shift: u8) -> (u16, bool) {
     shift = shift.clamp(1, 16);
     let value = input.unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
-    let carry = (value & 1) == 1;
+    let carry = (value & 1) != 0;
     let result = value.unbounded_shr(1);
+    (result, carry)
+}
+
+#[must_use]
+pub fn shl(input: u8, mut shift: u8) -> (u8, bool) {
+    shift = shift.clamp(1, 8);
+    let value = input.unbounded_shl(u32::from(shift.strict_sub(1))); // clamped >= 1
+    let carry = (value & 0x80) != 0;
+    let result = value.unbounded_shl(1);
+    (result, carry)
+}
+
+#[must_use]
+pub fn shl16(input: u16, mut shift: u8) -> (u16, bool) {
+    shift = shift.clamp(1, 16);
+    let value = input.unbounded_shl(u32::from(shift.strict_sub(1))); // clamped >= 1
+    let carry = (value & 0x8000) != 0;
+    let result = value.unbounded_shl(1);
     (result, carry)
 }
 

@@ -9,7 +9,7 @@ Use case programs to write:
 [ ] Print status flags
 
 For complete emulator we need:
-[ ] CPU: push / pop `ps` on `trap` / `rti`
+[X] CPU: push / pop `ps` on `trap` / `rti`
 
 Other:
 [ ] Monitor: bus tracing
