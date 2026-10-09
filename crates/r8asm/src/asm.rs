@@ -76,8 +76,8 @@ impl Assembler {
     /// * Syntax errors.
     pub fn assemble_kw(&mut self, kw: &String) -> Result<()> {
         match kw.as_str() {
-            "add" => self.gen_add(),
-            "and" => self.gen_bitwise("and"),
+            "add" => self.gen_alu("add"),
+            "and" => self.gen_alu("and"),
             "bcc" => self.gen_branch(BranchCc),
             "bcs" => self.gen_branch(BranchCs),
             "beq" => self.gen_branch(BranchEq),
@@ -88,7 +88,7 @@ impl Assembler {
             "call" => self.gen_call(),
             "clc" => self.emit_byte(u8::from(Clc)),
             "cli" => self.emit_byte(u8::from(Cli)),
-            "cmp" => self.gen_cmp(),
+            "cmp" => self.gen_alu("cmp"),
             "data" => self.gen_data(),
             "dec" => self.gen_dec(),
             "halt" => self.emit_byte(u8::from(Halt)),
@@ -97,7 +97,7 @@ impl Assembler {
             "ld" => self.gen_ld_or_store(),
             "lsr" => self.gen_shift(Lsr, LsrReg),
             "nop" => self.emit_byte(u8::from(Nop)),
-            "or" => self.gen_bitwise("or"),
+            "or" => self.gen_alu("or"),
             "org" => self.org(),
             "pop" => self.gen_pop(),
             "push" => self.gen_push(),
@@ -106,8 +106,8 @@ impl Assembler {
             "sec" => self.emit_byte(u8::from(Sec)),
             "sei" => self.emit_byte(u8::from(Sei)),
             "shl" => self.gen_shift(Shl, ShlReg),
-            "sub" => self.gen_sub(),
-            "test" => self.gen_test(),
+            "sub" => self.gen_alu("sub"),
+            "test" => self.gen_alu("test"),
             "trap" => self.gen_trap(),
             _ => unreachable!("unknown keyword '{kw}'"),
         }
@@ -237,45 +237,22 @@ impl Assembler {
         Ok(reg)
     }
 
-    /// Generates an add instruction.
+    /// Generates an arithmetic/logic instruction.
     ///
     /// # Errors
     ///
     /// * Missing register name.
     /// * Missing comma.
     /// * Missing or mis-sized operand.
-    pub fn gen_add(&mut self) -> Result<()> {
-        let target = self.expect_reg()?;
-        self.expect(&Comma)?;
-        match self.next_token()? {
-            ByteLiteral(addend) if !target.is16() => {
-                self.emit_byte(u8::from(Add(target)))?;
-                self.emit_byte(addend)
-            }
-            WordLiteral(addend) if target.is16() => {
-                self.emit_byte(u8::from(Add(target)))?;
-                self.emit_word(addend)
-            }
-            Register(source) if source.is16() == target.is16() => {
-                self.emit_byte(u8::from(AddReg))?;
-                self.emit_byte(u8::from(RegToReg { source, target }))
-            }
-            other => bail!("expected same-size immediate value or register name, got '{other}'"),
-        }
-    }
-
-    /// Generates a bitwise (`and`, `or`, or `xor`) instruction.
-    ///
-    /// # Errors
-    ///
-    /// * Missing register name.
-    /// * Missing comma.
-    /// * Missing or mis-sized operand.
-    pub fn gen_bitwise(&mut self, imm_name: &str) -> Result<()> {
+    pub fn gen_alu(&mut self, imm_name: &str) -> Result<()> {
         let target = self.expect_reg()?;
         let (imm_kind, reg_kind) = match imm_name {
+            "add" => (Add(target), AddReg),
             "and" => (And(target), AndReg),
+            "cmp" => (Cmp(target), CmpReg),
             "or" => (Or(target), OrReg),
+            "sub" => (Sub(target), SubReg),
+            "test" => (Test(target), TestReg),
             other => unreachable!("unknown instruction '{other}'"),
         };
         self.expect(&Comma)?;
@@ -322,33 +299,6 @@ impl Assembler {
         self.emit_byte(u8::from(Call))?;
         self.emit_word(addr)?;
         Ok(())
-    }
-
-    /// Generates a compare instruction.
-    ///
-    /// # Errors
-    ///
-    /// * Missing register name.
-    /// * Missing comma.
-    /// * Missing or mis-sized operand.
-    pub fn gen_cmp(&mut self) -> Result<()> {
-        let target = self.expect_reg()?;
-        self.expect(&Comma)?;
-        match self.next_token()? {
-            ByteLiteral(rhs) if !target.is16() => {
-                self.emit_byte(u8::from(Cmp(target)))?;
-                self.emit_byte(rhs)
-            }
-            WordLiteral(rhs) if target.is16() => {
-                self.emit_byte(u8::from(Cmp(target)))?;
-                self.emit_word(rhs)
-            }
-            Register(source) if source.is16() == target.is16() => {
-                self.emit_byte(u8::from(CmpReg))?;
-                self.emit_byte(u8::from(RegToReg { source, target }))
-            }
-            other => bail!("expected same-size immediate value or register name, got '{other}'"),
-        }
     }
 
     /// Generates literal data.
@@ -653,60 +603,6 @@ impl Assembler {
             other => bail!("unexpected token {other}"),
         }
         Ok(())
-    }
-
-    /// Generates a subtract instruction.
-    ///
-    /// # Errors
-    ///
-    /// * Missing register name.
-    /// * Missing comma.
-    /// * Missing or mis-sized operand.
-    pub fn gen_sub(&mut self) -> Result<()> {
-        let target = self.expect_reg()?;
-        self.expect(&Comma)?;
-        match self.next_token()? {
-            ByteLiteral(subtrahend) if !target.is16() => {
-                self.emit_byte(u8::from(Sub(target)))?;
-                self.emit_byte(subtrahend)
-            }
-            WordLiteral(subtrahend) if target.is16() => {
-                self.emit_byte(u8::from(Sub(target)))?;
-                self.emit_word(subtrahend)
-            }
-            Register(source) if source.is16() == target.is16() => {
-                self.emit_byte(u8::from(SubReg))?;
-                self.emit_byte(u8::from(RegToReg { source, target }))
-            }
-            other => bail!("expected same-size immediate value or register name, got '{other}'"),
-        }
-    }
-
-    /// Generates a `test` instruction.
-    ///
-    /// # Errors
-    ///
-    /// * Missing register name.
-    /// * Missing comma.
-    /// * Missing or mis-sized operand.
-    pub fn gen_test(&mut self) -> Result<()> {
-        let target = self.expect_reg()?;
-        self.expect(&Comma)?;
-        match self.next_token()? {
-            ByteLiteral(addend) if !target.is16() => {
-                self.emit_byte(u8::from(Test(target)))?;
-                self.emit_byte(addend)
-            }
-            WordLiteral(addend) if target.is16() => {
-                self.emit_byte(u8::from(Test(target)))?;
-                self.emit_word(addend)
-            }
-            Register(source) if source.is16() == target.is16() => {
-                self.emit_byte(u8::from(TestReg))?;
-                self.emit_byte(u8::from(RegToReg { source, target }))
-            }
-            other => bail!("expected same-size immediate value or register name, got '{other}'"),
-        }
     }
 
     /// Generates a `trap T` instruction.
