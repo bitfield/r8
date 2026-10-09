@@ -33,6 +33,8 @@ pub enum InstructionKind {
     Call,
     /// Clear carry flag.
     Clc,
+    /// Clear interrupt disable flag.
+    Cli,
     /// Compare immediate.
     Cmp(Reg),
     /// Compare register.
@@ -82,6 +84,8 @@ pub enum InstructionKind {
     Rti,
     /// Set carry flag.
     Sec,
+    /// Set interrupt disable flag.
+    Sei,
     /// Shift left immediate.
     Shl,
     /// Shift left register.
@@ -128,6 +132,7 @@ impl Display for InstructionKind {
                 BranchPl => "bpl D".to_owned(),
                 Call => "call NN".to_owned(),
                 Clc => "clc".to_owned(),
+                Cli => "cli".to_owned(),
                 Cmp(reg) => format!("cmp {reg}, N"),
                 CmpReg => "cmp R1, R2".to_owned(),
                 Dec(reg) => format!("dec {reg}"),
@@ -152,6 +157,7 @@ impl Display for InstructionKind {
                 Ret => "ret".to_owned(),
                 Rti => "rti".to_owned(),
                 Sec => "sec".to_owned(),
+                Sei => "sei".to_owned(),
                 Shl => "shl R, S".to_owned(),
                 ShlReg => "shl R1, R2".to_owned(),
                 Store(reg) => format!("ld NN, {reg}"),
@@ -178,6 +184,8 @@ impl TryFrom<u8> for InstructionKind {
             0x01 => Nop,
             0x03 => Sec,
             0x04 => Clc,
+            0x05 => Sei,
+            0x06 => Cli,
             0x08 => Ret,
             0x09 => Rti,
             0x10..=0x1C => Ld(reg?),
@@ -243,6 +251,7 @@ impl From<InstructionKind> for u8 {
             BranchPl => 0xF6,
             Call => 0xF8,
             Clc => 0x04,
+            Cli => 0x06,
             Cmp(reg) => 0x70 | u8::from(reg),
             CmpReg => 0x7F,
             Dec(reg) => 0x40 | u8::from(reg),
@@ -267,6 +276,7 @@ impl From<InstructionKind> for u8 {
             Ret => 0x08,
             Rti => 0x09,
             Sec => 0x03,
+            Sei => 0x05,
             Shl => 0xC0,
             ShlReg => 0xC1,
             Store(reg) => 0x20 | u8::from(reg),
@@ -288,8 +298,8 @@ impl InstructionKind {
     pub fn operands(&self) -> Operands {
         use Operands::*;
         match *self {
-            Clc | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
-            | Sec => Zero,
+            Clc | Cli | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
+            | Sec | Sei => Zero,
             AddReg | AndReg | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
             | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect | LdReg
             | Lsr | LsrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg | Trap => One,

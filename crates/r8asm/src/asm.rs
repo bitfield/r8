@@ -24,9 +24,9 @@ pub const BASE: u16 = 0x0100;
 
 /// Keywords recognised by the assembler.
 pub const KEYWORDS: &[&str] = &[
-    "add", "and", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cmp", "data",
-    "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "org", "pop", "push", "ret", "rti", "sec",
-    "shl", "sub", "test", "trap",
+    "add", "and", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cli", "cmp",
+    "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "org", "pop", "push", "ret", "rti",
+    "sec", "sei", "shl", "sub", "test", "trap",
 ];
 
 /// Assembles a given source program.
@@ -87,6 +87,7 @@ impl Assembler {
             "bra" => self.gen_branch(BranchAlways),
             "call" => self.gen_call(),
             "clc" => self.emit_byte(u8::from(Clc)),
+            "cli" => self.emit_byte(u8::from(Cli)),
             "cmp" => self.gen_cmp(),
             "data" => self.gen_data(),
             "dec" => self.gen_dec(),
@@ -102,6 +103,7 @@ impl Assembler {
             "ret" => self.emit_byte(u8::from(Ret)),
             "rti" => self.emit_byte(u8::from(Rti)),
             "sec" => self.emit_byte(u8::from(Sec)),
+            "sei" => self.emit_byte(u8::from(Sei)),
             "shl" => self.gen_shift(Shl, ShlReg),
             "sub" => self.gen_sub(),
             "test" => self.gen_test(),
@@ -837,6 +839,7 @@ impl Iterator for Disassembler<'_> {
                 BranchPl => format!("bpl {}", self.format_byte()),
                 Call => format!("call {}", self.format_word()),
                 Clc => "clc".into(),
+                Cli => "cli".into(),
                 Cmp(reg) => self.format_reg_imm("cmp", reg),
                 CmpReg => self.format_reg_reg("cmp"),
                 Dec(reg) => format!("dec {reg}"),
@@ -861,6 +864,7 @@ impl Iterator for Disassembler<'_> {
                 Ret => "ret".into(),
                 Rti => "rti".into(),
                 Sec => "sec".into(),
+                Sei => "sei".into(),
                 Shl => self.format_shift_imm("shl"),
                 ShlReg => self.format_reg_reg("shl"),
                 Store(reg) => format!("ld {}, {reg}", self.format_word()),
@@ -1619,6 +1623,7 @@ mod tests {
             ("bra 0x99", &[u8::from(BranchAlways), 0x99]),
             ("call 0xBEEE", &[u8::from(Call), 0xEE, 0xBE]),
             ("clc", &[u8::from(Clc)]),
+            ("cli", &[u8::from(Cli)]),
             ("cmp d, 0x01", &[u8::from(Cmp(D)), 0x01]),
             ("cmp d, a", &[u8::from(CmpReg), 0x03]),
             ("cmp gh, 0xDEAD", &[u8::from(Cmp(GH)), 0xAD, 0xDE]),
@@ -1654,6 +1659,7 @@ mod tests {
             ("ret", &[u8::from(Ret)]),
             ("rti", &[u8::from(Rti)]),
             ("sec", &[u8::from(Sec)]),
+            ("sei", &[u8::from(Sei)]),
             ("shl ef, 0x04", &[u8::from(Shl), 0x4A]),
             ("shl cd, a", &[u8::from(ShlReg), 0x09]),
             ("sub a, 0x01", &[u8::from(Sub(A)), 0x01]),
@@ -1702,6 +1708,7 @@ mod tests {
             "call gh",
             "call",
             "clc 0x00",
+            "cli a",
             "cmp a, b, d",
             "data (",
             "data \"©\"",
@@ -1758,6 +1765,7 @@ mod tests {
             "ret cd",
             "rti 0x0100",
             "sec ab",
+            "sei 0x01",
             "shl",
             "shl a",
             "shl ab, 0x0002",

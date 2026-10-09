@@ -1,8 +1,11 @@
 /// The state of the CPU's flag bits.
+#[expect(clippy::struct_excessive_bools, reason = "define 'excessive'")]
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct Flags {
     /// Indicates carry (from addition) or 'no borrow' (from subtraction or comparison).
     pub carry: bool,
+    /// Disable interrupts.
+    pub interrupt: bool,
     /// Indicates a negative result from the last operation.
     pub negative: bool,
     /// Indicates a zero result from the last operation.
@@ -13,6 +16,7 @@ impl From<u8> for Flags {
     fn from(value: u8) -> Self {
         Self {
             carry: value & 0x01 != 0,
+            interrupt: value & 0x04 != 0,
             negative: value & 0x80 != 0,
             zero: value & 0x02 != 0,
         }
@@ -23,6 +27,7 @@ impl From<Flags> for u8 {
     fn from(flags: Flags) -> Self {
         let mut value = 0x00;
         value |= u8::from(flags.carry);
+        value |= u8::from(flags.interrupt).strict_shl(2);
         value |= u8::from(flags.negative).strict_shl(7);
         value |= u8::from(flags.zero).strict_shl(1);
         value

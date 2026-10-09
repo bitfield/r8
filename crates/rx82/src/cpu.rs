@@ -399,6 +399,7 @@ impl Cpu {
             BranchPl if !self.flags.negative => self.branch(),
             Call => self.call(bus),
             Clc => self.flags.carry = false,
+            Cli => self.flags.interrupt = false,
             Cmp(reg) => self.cmp(reg),
             CmpReg => self.cmp_reg(bus),
             Dec(reg) => self.dec(reg),
@@ -422,6 +423,7 @@ impl Cpu {
             Ret => self.ret(bus),
             Rti => self.rti(bus),
             Sec => self.flags.carry = true,
+            Sei => self.flags.interrupt = true,
             Shl => self.shift_imm(shl, shl16, bus),
             ShlReg => self.shift_reg(shl, shl16, bus),
             Store(reg) => self.store_direct(reg, bus),
@@ -1581,6 +1583,20 @@ mod tests {
     }
 
     #[test]
+    fn cli() {
+        let mut sys = System::default();
+        sys.cpu.flags.interrupt = true;
+        sys.test_asm(
+            "
+                cli",
+        );
+        assert_eq!(
+            sys.cpu.flags.interrupt, false,
+            "interrupt disable not cleared"
+        );
+    }
+
+    #[test]
     fn cmp() {
         let mut sys = System::default();
         sys.cpu.flags.zero = false;
@@ -2335,23 +2351,25 @@ mod tests {
     }
 
     #[test]
-    fn ps_is_correctly_deccoded() {
+    fn ps_is_correctly_decoded() {
         let flags = Flags {
             carry: true,
+            interrupt: true,
             negative: true,
             zero: true,
         };
-        assert_eq!(Flags::from(0x83), flags);
+        assert_eq!(Flags::from(0b1000_0111), flags);
     }
 
     #[test]
     fn ps_is_correctly_encoded() {
         let flags = Flags {
             carry: true,
+            interrupt: true,
             negative: true,
             zero: true,
         };
-        assert_eq!(u8::from(flags), 0x83);
+        assert_eq!(u8::from(flags), 0b1000_0111);
     }
 
     #[test]
@@ -2435,6 +2453,17 @@ mod tests {
                 sec",
         );
         assert_eq!(sys.cpu.flags.carry, true, "carry not set");
+    }
+
+    #[test]
+    fn sei() {
+        let mut sys = System::default();
+        sys.cpu.flags.interrupt = false;
+        sys.test_asm(
+            "
+                sei",
+        );
+        assert_eq!(sys.cpu.flags.interrupt, true, "interrupt disable not set");
     }
 
     #[test]
