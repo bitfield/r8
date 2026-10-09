@@ -187,7 +187,7 @@ impl TryFrom<u8> for InstructionKind {
             0x05 => Sei,
             0x06 => Cli,
             0x07 => Ret,
-            0x09 => Rti,
+            0x08 => Rti,
             0x10..=0x1C => Ld(reg?),
             0x1D => LdIndirect,
             0x1E => LdReg,
@@ -274,7 +274,7 @@ impl From<InstructionKind> for u8 {
             Push(reg) => 0xD0 | u8::from(reg),
             PushPS => 0xDC,
             Ret => 0x07,
-            Rti => 0x09,
+            Rti => 0x08,
             Sec => 0x03,
             Sei => 0x05,
             Shl => 0xC0,
@@ -298,8 +298,8 @@ impl InstructionKind {
     pub fn operands(&self) -> Operands {
         use Operands::*;
         match *self {
-            Clc | Cli | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret | Rti
-            | Sec | Sei => Zero,
+            Clc | Cli | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret
+            | Rti | Sec | Sei => Zero,
             AddReg | AndReg | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
             | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect | LdReg
             | Lsr | LsrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg | Trap => One,
