@@ -2,8 +2,8 @@ use r8cpu::{
     flags::Flags,
     instructions::{InstructionKind, Operands},
     logic::{
-        add, add16, and, and16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, shl, shl16, sub,
-        sub16,
+        add, add16, and, and16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, or, or16, shl,
+        shl16, sub, sub16,
     },
     regs::{Reg, RegToReg, Regs, ShiftReg},
 };
@@ -253,36 +253,44 @@ impl Cpu {
         }
     }
 
-    /// And immediate.
-    pub fn and_imm(&mut self, target: Reg) {
+    /// Performs a bitwise operation on the target register with the operand.
+    pub fn bitwise_imm<F8, F16>(&mut self, f8: F8, f16: F16, target: Reg)
+    where
+        F8: FnOnce(u8, u8) -> u8,
+        F16: FnOnce(u16, u16) -> u16,
+    {
         if target.is16() {
             let input = self.regs.get16(target);
             let mask = self.op();
-            let result = and16(input, mask);
+            let result = f16(input, mask);
             self.regs.set16(target, result);
             self.flags.update16(result);
         } else {
             let input = self.regs.get(target);
             let mask = self.op_lo;
-            let result = and(input, mask);
+            let result = f8(input, mask);
             self.regs.set(target, result);
             self.flags.update(result);
         }
     }
 
-    /// And register.
-    pub fn and_reg(&mut self, bus: &mut Bus) {
+    /// Performs a bitwise operation on the target register with the contents of the source register.
+    pub fn bitwise_reg<F8, F16>(&mut self, f8: F8, f16: F16, bus: &mut Bus)
+    where
+        F8: FnOnce(u8, u8) -> u8,
+        F16: FnOnce(u16, u16) -> u16,
+    {
         if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             if target.is16() {
                 let input = self.regs.get16(target);
                 let mask = self.regs.get16(source);
-                let result = and16(input, mask);
+                let result = f16(input, mask);
                 self.regs.set16(target, result);
                 self.flags.update16(result);
             } else {
                 let input = self.regs.get(target);
                 let mask = self.regs.get(source);
-                let result = and(input, mask);
+                let result = f8(input, mask);
                 self.regs.set(target, result);
                 self.flags.update(result);
             }
@@ -388,8 +396,8 @@ impl Cpu {
         match ins {
             Add(reg) => self.add(reg),
             AddReg => self.add_reg(bus),
-            And(reg) => self.and_imm(reg),
-            AndReg => self.and_reg(bus),
+            And(reg) => self.bitwise_imm(and, and16, reg),
+            AndReg => self.bitwise_reg(and, and16, bus),
             BranchAlways => self.branch(),
             BranchCc if !self.flags.carry => self.branch(),
             BranchCs if self.flags.carry => self.branch(),
@@ -416,6 +424,8 @@ impl Cpu {
             LdReg => self.ld_reg(bus),
             Lsr => self.shift_imm(lsr, lsr16, bus),
             LsrReg => self.shift_reg(lsr, lsr16, bus),
+            Or(reg) => self.bitwise_imm(or, or16, reg),
+            OrReg => self.bitwise_reg(or, or16, bus),
             Pop(reg) => self.pop(reg, bus),
             PopPS => self.pop_ps(bus),
             Push(reg) => self.push(reg, bus),
@@ -609,7 +619,7 @@ impl Cpu {
         self.state = WaitFlags;
     }
 
-    /// Shift/rotate.
+    /// Performs a shift/rotate instruction.
     pub fn shift<F8, F16>(&mut self, f8: F8, f16: F16, target: Reg, shift: u8)
     where
         F8: FnOnce(u8, u8) -> (u8, bool),
@@ -630,7 +640,7 @@ impl Cpu {
         }
     }
 
-    /// Shift/rotate the target register by the operand shift.
+    /// Performs a shift/rotate instruction on the target register by the operand shift.
     pub fn shift_imm<F8, F16>(&mut self, f8: F8, f16: F16, bus: &mut Bus)
     where
         F8: FnOnce(u8, u8) -> (u8, bool),
@@ -643,7 +653,8 @@ impl Cpu {
         self.shift(f8, f16, target, shift);
     }
 
-    /// Shift/rotate the target register by the contents of the source register.
+    /// Performs a shift/rotate instruction on the target register by the contents of
+    /// the source register.
     pub fn shift_reg<F8, F16>(&mut self, f8: F8, f16: F16, bus: &mut Bus)
     where
         F8: FnOnce(u8, u8) -> (u8, bool),
@@ -2189,6 +2200,31 @@ mod tests {
                 halt",
         );
         assert_hex!(sys.cpu.regs.get16(AB), 0x0080, "wrong AB");
+    }
+
+    #[test]
+    fn or_reg() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "   ld a, 0x01
+                ld h, 0x10
+                or a, h
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0x11, "wrong A");
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
+    }
+
+    #[test]
+    fn or16() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "   ld ab, 0xFFF0
+                or ab, 0x0A01
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0xFFF1, "wrong AB");
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
     }
 
     #[test]

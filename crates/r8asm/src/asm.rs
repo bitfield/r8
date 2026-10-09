@@ -25,8 +25,8 @@ pub const BASE: u16 = 0x0100;
 /// Keywords recognised by the assembler.
 pub const KEYWORDS: &[&str] = &[
     "add", "and", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cli", "cmp",
-    "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "org", "pop", "push", "ret", "rti",
-    "sec", "sei", "shl", "sub", "test", "trap",
+    "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "or", "org", "pop", "push", "ret",
+    "rti", "sec", "sei", "shl", "sub", "test", "trap",
 ];
 
 /// Assembles a given source program.
@@ -77,7 +77,7 @@ impl Assembler {
     pub fn assemble_kw(&mut self, kw: &String) -> Result<()> {
         match kw.as_str() {
             "add" => self.gen_add(),
-            "and" => self.gen_and(),
+            "and" => self.gen_bitwise("and"),
             "bcc" => self.gen_branch(BranchCc),
             "bcs" => self.gen_branch(BranchCs),
             "beq" => self.gen_branch(BranchEq),
@@ -97,6 +97,7 @@ impl Assembler {
             "ld" => self.gen_ld_or_store(),
             "lsr" => self.gen_shift(Lsr, LsrReg),
             "nop" => self.emit_byte(u8::from(Nop)),
+            "or" => self.gen_bitwise("or"),
             "org" => self.org(),
             "pop" => self.gen_pop(),
             "push" => self.gen_push(),
@@ -263,27 +264,32 @@ impl Assembler {
         }
     }
 
-    /// Generates an `and` instruction.
+    /// Generates a bitwise (`and`, `or`, or `xor`) instruction.
     ///
     /// # Errors
     ///
     /// * Missing register name.
     /// * Missing comma.
     /// * Missing or mis-sized operand.
-    pub fn gen_and(&mut self) -> Result<()> {
+    pub fn gen_bitwise(&mut self, imm_name: &str) -> Result<()> {
         let target = self.expect_reg()?;
+        let (imm_kind, reg_kind) = match imm_name {
+            "and" => (And(target), AndReg),
+            "or" => (Or(target), OrReg),
+            other => unreachable!("unknown instruction '{other}'"),
+        };
         self.expect(&Comma)?;
         match self.next_token()? {
             ByteLiteral(addend) if !target.is16() => {
-                self.emit_byte(u8::from(And(target)))?;
+                self.emit_byte(u8::from(imm_kind))?;
                 self.emit_byte(addend)
             }
             WordLiteral(addend) if target.is16() => {
-                self.emit_byte(u8::from(And(target)))?;
+                self.emit_byte(u8::from(imm_kind))?;
                 self.emit_word(addend)
             }
             Register(source) if source.is16() == target.is16() => {
-                self.emit_byte(u8::from(AndReg))?;
+                self.emit_byte(u8::from(reg_kind))?;
                 self.emit_byte(u8::from(RegToReg { source, target }))
             }
             other => bail!("expected same-size immediate value or register name, got '{other}'"),
@@ -857,6 +863,8 @@ impl Iterator for Disassembler<'_> {
                 Lsr => self.format_shift_imm("lsr"),
                 LsrReg => self.format_reg_reg("lsr"),
                 Nop => "nop".into(),
+                Or(reg) => self.format_reg_imm("or", reg),
+                OrReg => self.format_reg_reg("or"),
                 Pop(reg) => format!("pop {reg}"),
                 PopPS => "pop ps".into(),
                 Push(reg) => format!("push {reg}"),
@@ -1652,6 +1660,9 @@ mod tests {
             ("lsr a, 0x04", &[u8::from(Lsr), 0x40]),
             ("lsr ab, c", &[u8::from(LsrReg), 0x28]),
             ("nop", &[u8::from(Nop)]),
+            ("or a, 0x01", &[u8::from(Or(A)), 0x01]),
+            ("or cd, 0xFFFE", &[u8::from(Or(CD)), 0xFE, 0xFF]),
+            ("or ab, cd", &[u8::from(OrReg), 0x98]),
             ("pop e", &[u8::from(Pop(E))]),
             ("pop ps", &[u8::from(PopPS)]),
             ("push c", &[u8::from(Push(C))]),

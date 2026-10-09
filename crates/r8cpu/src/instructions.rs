@@ -70,6 +70,10 @@ pub enum InstructionKind {
     LsrReg,
     /// No operation.
     Nop,
+    /// Or immediate.
+    Or(Reg),
+    /// Or register.
+    OrReg,
     /// Pop a register value from the stack.
     Pop(Reg),
     /// Pop the status register from the stack.
@@ -150,6 +154,8 @@ impl Display for InstructionKind {
                 Lsr => "lsr R, S".to_owned(),
                 LsrReg => "lsr R1, R2".to_owned(),
                 Nop => "nop".to_owned(),
+                Or(reg) => format!("or {reg}, N"),
+                OrReg => "or R1, R2".to_owned(),
                 Pop(reg) => format!("pop {reg}"),
                 PopPS => "pop ps".to_owned(),
                 Push(reg) => format!("push {reg}"),
@@ -212,6 +218,8 @@ impl TryFrom<u8> for InstructionKind {
             0x8F => AndReg,
             0x90..=0x9C => Test(reg?),
             0x9F => TestReg,
+            0xA0..=0xAC => Or(reg?),
+            0xAF => OrReg,
             0xC0 => Shl,
             0xC1 => ShlReg,
             0xC2 => Lsr,
@@ -269,6 +277,8 @@ impl From<InstructionKind> for u8 {
             Lsr => 0xC2,
             LsrReg => 0xC3,
             Nop => 0x01,
+            Or(reg) => 0xA0 | u8::from(reg),
+            OrReg => 0xAF,
             Pop(reg) => 0xE0 | u8::from(reg),
             PopPS => 0xEC,
             Push(reg) => 0xD0 | u8::from(reg),
@@ -302,13 +312,9 @@ impl InstructionKind {
             | Rti | Sec | Sei => Zero,
             AddReg | AndReg | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
             | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect | LdReg
-            | Lsr | LsrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg | Trap => One,
-            Add(reg) | And(reg) | Cmp(reg) | Ld(reg) | Sub(reg) | Test(reg) => {
-                if reg.is16() {
-                    Two
-                } else {
-                    One
-                }
+            | Lsr | LsrReg | OrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg | Trap => One,
+            Add(reg) | And(reg) | Cmp(reg) | Ld(reg) | Or(reg) | Sub(reg) | Test(reg) => {
+                if reg.is16() { Two } else { One }
             }
             Call | DecMem | IncMem | Jmp | LdIndexed | Store(_) | StoreIndexed
             | StoreIndirectImm => Two,

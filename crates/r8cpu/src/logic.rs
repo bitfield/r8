@@ -75,6 +75,16 @@ pub fn lsr16(input: u16, mut shift: u8) -> (u16, bool) {
 }
 
 #[must_use]
+pub fn or(input: u8, mask: u8) -> u8 {
+    input | mask
+}
+
+#[must_use]
+pub fn or16(input: u16, mask: u16) -> u16 {
+    input | mask
+}
+
+#[must_use]
 pub fn shl(input: u8, mut shift: u8) -> (u8, bool) {
     shift = shift.clamp(1, 8);
     let value = input.unbounded_shl(u32::from(shift.strict_sub(1))); // clamped >= 1
