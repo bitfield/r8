@@ -76,8 +76,7 @@ impl Assembler {
     /// * Syntax errors.
     pub fn assemble_kw(&mut self, kw: &String) -> Result<()> {
         match kw.as_str() {
-            "add" => self.gen_alu("add"),
-            "and" => self.gen_alu("and"),
+            op @ ("add" | "and" | "cmp" | "or" | "sub" | "test" | "xor") => self.gen_alu(op),
             "asr" => self.gen_shift(Asr, AsrReg),
             "bcc" => self.gen_branch(BranchCc),
             "bcs" => self.gen_branch(BranchCs),
@@ -89,7 +88,6 @@ impl Assembler {
             "call" => self.gen_call(),
             "clc" => self.emit_byte(u8::from(Clc)),
             "cli" => self.emit_byte(u8::from(Cli)),
-            "cmp" => self.gen_alu("cmp"),
             "data" => self.gen_data(),
             "dec" => self.gen_dec(),
             "halt" => self.emit_byte(u8::from(Halt)),
@@ -98,7 +96,6 @@ impl Assembler {
             "ld" => self.gen_ld_or_store(),
             "lsr" => self.gen_shift(Lsr, LsrReg),
             "nop" => self.emit_byte(u8::from(Nop)),
-            "or" => self.gen_alu("or"),
             "org" => self.org(),
             "pop" => self.gen_pop(),
             "push" => self.gen_push(),
@@ -107,10 +104,7 @@ impl Assembler {
             "sec" => self.emit_byte(u8::from(Sec)),
             "sei" => self.emit_byte(u8::from(Sei)),
             "shl" => self.gen_shift(Shl, ShlReg),
-            "sub" => self.gen_alu("sub"),
-            "test" => self.gen_alu("test"),
             "trap" => self.gen_trap(),
-            "xor" => self.gen_alu("xor"),
             _ => unreachable!("unknown keyword '{kw}'"),
         }
     }
