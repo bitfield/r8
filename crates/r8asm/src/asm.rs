@@ -26,7 +26,7 @@ pub const BASE: u16 = 0x0100;
 pub const KEYWORDS: &[&str] = &[
     "add", "and", "asr", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cli",
     "cmp", "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "or", "org", "pop", "push",
-    "ret", "rti", "sec", "sei", "shl", "sub", "test", "trap",
+    "ret", "rti", "sec", "sei", "shl", "sub", "test", "trap", "xor",
 ];
 
 /// Assembles a given source program.
@@ -110,6 +110,7 @@ impl Assembler {
             "sub" => self.gen_alu("sub"),
             "test" => self.gen_alu("test"),
             "trap" => self.gen_trap(),
+            "xor" => self.gen_alu("xor"),
             _ => unreachable!("unknown keyword '{kw}'"),
         }
     }
@@ -254,6 +255,7 @@ impl Assembler {
             "or" => (Or(target), OrReg),
             "sub" => (Sub(target), SubReg),
             "test" => (Test(target), TestReg),
+            "xor" => (Xor(target), XorReg),
             other => unreachable!("unknown instruction '{other}'"),
         };
         self.expect(&Comma)?;
@@ -783,6 +785,8 @@ impl Iterator for Disassembler<'_> {
                 Test(reg) => self.format_reg_imm("test", reg),
                 TestReg => self.format_reg_reg("test"),
                 Trap => format!("trap {}", self.format_byte()),
+                Xor(reg) => self.format_reg_imm("xor", reg),
+                XorReg => self.format_reg_reg("xor"),
             }
         } else {
             format!("??? ({opcode:#04X})")
@@ -1582,6 +1586,9 @@ mod tests {
             ("test cd, 0xFFFE", &[u8::from(Test(CD)), 0xFE, 0xFF]),
             ("test b, h", &[u8::from(TestReg), 0x71]),
             ("trap 0x01", &[u8::from(Trap), 0x01]),
+            ("xor a, 0x01", &[u8::from(Xor(A)), 0x01]),
+            ("xor cd, 0xFFFE", &[u8::from(Xor(CD)), 0xFE, 0xFF]),
+            ("xor ab, cd", &[u8::from(XorReg), 0x98]),
         ];
         for &(source, object) in cases {
             let generated = assemble_with_debug(source).unwrap();
@@ -1673,6 +1680,11 @@ mod tests {
             "lsr ab, cd",
             "lsr a, cd",
             "nop\norg 0x0000",
+            "or",
+            "or ab, 0xFF",
+            "or cd, a",
+            "or a, 0x1000",
+            "or 0x01, 0x0F",
             "org 0xFFFF\nld a, 0x01",
             "pop",
             "pop 0x01",
@@ -1702,6 +1714,11 @@ mod tests {
             "trap 0xFF",
             "trap a",
             "trap",
+            "xor",
+            "xor ab, 0xFF",
+            "xor cd, a",
+            "xor a, 0x1000",
+            "xor 0x01, 0x0F",
         ];
         for &source in cases {
             assemble_with_debug(source)

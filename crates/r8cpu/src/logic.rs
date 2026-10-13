@@ -143,3 +143,13 @@ pub fn sub16(minuend: u16, subtrahend: u16, carry_in: bool) -> (u16, bool) {
     let carry_out = !(borrow1 || borrow2);
     (result, carry_out)
 }
+
+#[must_use]
+pub fn xor(input: u8, mask: u8) -> u8 {
+    input ^ mask
+}
+
+#[must_use]
+pub fn xor16(input: u16, mask: u16) -> u16 {
+    input ^ mask
+}

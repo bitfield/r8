@@ -117,6 +117,10 @@ pub enum InstructionKind {
     TestReg,
     /// Trap with a specified code.
     Trap,
+    /// Exclusive or immediate.
+    Xor(Reg),
+    /// Exclusive or register.
+    XorReg,
 }
 
 use InstructionKind::*;
@@ -181,6 +185,8 @@ impl Display for InstructionKind {
                 Test(reg) => format!("test {reg}, N"),
                 TestReg => "test R1, R2".to_owned(),
                 Trap => "trap T".to_owned(),
+                Xor(reg) => format!("xor {reg}, N"),
+                XorReg => "xor R1, R2".to_owned(),
             }
         )
     }
@@ -226,6 +232,8 @@ impl TryFrom<u8> for InstructionKind {
             0x9F => TestReg,
             0xA0..=0xAC => Or(reg?),
             0xAF => OrReg,
+            0xB0..=0xBC => Xor(reg?),
+            0xBF => XorReg,
             0xC0 => Shl,
             0xC1 => ShlReg,
             0xC2 => Lsr,
@@ -308,6 +316,8 @@ impl From<InstructionKind> for u8 {
             Test(reg) => 0x90 | u8::from(reg),
             TestReg => 0x9F,
             Trap => 0xF9,
+            Xor(reg) => 0xB0 | u8::from(reg),
+            XorReg => 0xBF,
         }
     }
 }
@@ -323,9 +333,14 @@ impl InstructionKind {
             AddReg | AndReg | Asr | AsrReg | BranchAlways | BranchCc | BranchCs | BranchEq
             | BranchMi | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect
             | LdReg | Lsr | LsrReg | OrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg
-            | Trap => One,
-            Add(reg) | And(reg) | Cmp(reg) | Ld(reg) | Or(reg) | Sub(reg) | Test(reg) => {
-                if reg.is16() { Two } else { One }
+            | Trap | XorReg => One,
+            Add(reg) | And(reg) | Cmp(reg) | Ld(reg) | Or(reg) | Sub(reg) | Test(reg)
+            | Xor(reg) => {
+                if reg.is16() {
+                    Two
+                } else {
+                    One
+                }
             }
             Call | DecMem | IncMem | Jmp | LdIndexed | Store(_) | StoreIndexed
             | StoreIndirectImm => Two,

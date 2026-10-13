@@ -3,7 +3,7 @@ use r8cpu::{
     instructions::{InstructionKind, Operands},
     logic::{
         add, add16, and, and16, asr, asr16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, or,
-        or16, shl, shl16, sub, sub16,
+        or16, shl, shl16, sub, sub16, xor, xor16,
     },
     regs::{Reg, RegToReg, Regs, ShiftReg},
 };
@@ -447,6 +447,8 @@ impl Cpu {
             Test(reg) => self.test_imm(reg),
             TestReg => self.test_reg(bus),
             Trap => self.trap(self.op_lo, bus),
+            Xor(reg) => self.bitwise_imm(xor, xor16, reg),
+            XorReg => self.bitwise_reg(xor, xor16, bus),
             Nop | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe | BranchPl => {}
         }
     }
@@ -2947,6 +2949,31 @@ mod tests {
         assert_hex!(sys.peek_mem(0x01FE), 0x01, "wrong flags on stack");
         assert_hex!(sys.peek_mem(0x01FD), 0x02, "wrong trap code");
         assert_hex!(sys.cpu.regs.get16(SP), 0x01FC, "wrong SP");
+    }
+
+    #[test]
+    fn xor_reg() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "   ld a, 0x11
+                ld h, 0x10
+                xor a, h
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0x01, "wrong A");
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
+    }
+
+    #[test]
+    fn xor16() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "   ld ab, 0xFFF0  ;    0b1111_1111_1111_0000
+                xor ab, 0x0A01 ;    0b0000_1010_0000_0001
+                halt           ; ab=0b1111_0101_1111_0001",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0xF5F1, "wrong AB");
+        assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
     }
 
     #[test]
