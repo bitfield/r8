@@ -15,6 +15,10 @@ pub enum InstructionKind {
     And(Reg),
     /// And register.
     AndReg,
+    /// Arithmetic shift right immediate.
+    Asr,
+    /// Arithmetic shift right register.
+    AsrReg,
     /// Branch always.
     BranchAlways,
     /// Branch if the carry flag is clear.
@@ -127,6 +131,8 @@ impl Display for InstructionKind {
                 AddReg => "add R1, R2".to_owned(),
                 And(reg) => format!("and {reg}, N"),
                 AndReg => "and R1, R2".to_owned(),
+                Asr => "asr R, S".to_owned(),
+                AsrReg => "asr R1, R2".to_owned(),
                 BranchAlways => "bra D".to_owned(),
                 BranchCc => "bcc D".to_owned(),
                 BranchCs => "bcs D".to_owned(),
@@ -224,6 +230,8 @@ impl TryFrom<u8> for InstructionKind {
             0xC1 => ShlReg,
             0xC2 => Lsr,
             0xC3 => LsrReg,
+            0xC4 => Asr,
+            0xC5 => AsrReg,
             0xD0..=0xDB => Push(reg?),
             0xDC => PushPS,
             0xE0..=0xEB => Pop(reg?),
@@ -250,6 +258,8 @@ impl From<InstructionKind> for u8 {
             AddReg => 0x5F,
             And(reg) => 0x80 | u8::from(reg),
             AndReg => 0x8F,
+            Asr => 0xC4,
+            AsrReg => 0xC5,
             BranchAlways => 0xF0,
             BranchCc => 0xF4,
             BranchCs => 0xF3,
@@ -310,9 +320,10 @@ impl InstructionKind {
         match *self {
             Clc | Cli | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret
             | Rti | Sec | Sei => Zero,
-            AddReg | AndReg | BranchAlways | BranchCc | BranchCs | BranchEq | BranchMi
-            | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect | LdReg
-            | Lsr | LsrReg | OrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg | Trap => One,
+            AddReg | AndReg | Asr | AsrReg | BranchAlways | BranchCc | BranchCs | BranchEq
+            | BranchMi | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect
+            | LdReg | Lsr | LsrReg | OrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg
+            | Trap => One,
             Add(reg) | And(reg) | Cmp(reg) | Ld(reg) | Or(reg) | Sub(reg) | Test(reg) => {
                 if reg.is16() { Two } else { One }
             }

@@ -24,9 +24,9 @@ pub const BASE: u16 = 0x0100;
 
 /// Keywords recognised by the assembler.
 pub const KEYWORDS: &[&str] = &[
-    "add", "and", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cli", "cmp",
-    "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "or", "org", "pop", "push", "ret",
-    "rti", "sec", "sei", "shl", "sub", "test", "trap",
+    "add", "and", "asr", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cli",
+    "cmp", "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "or", "org", "pop", "push",
+    "ret", "rti", "sec", "sei", "shl", "sub", "test", "trap",
 ];
 
 /// Assembles a given source program.
@@ -78,6 +78,7 @@ impl Assembler {
         match kw.as_str() {
             "add" => self.gen_alu("add"),
             "and" => self.gen_alu("and"),
+            "asr" => self.gen_shift(Asr, AsrReg),
             "bcc" => self.gen_branch(BranchCc),
             "bcs" => self.gen_branch(BranchCs),
             "beq" => self.gen_branch(BranchEq),
@@ -732,6 +733,8 @@ impl Iterator for Disassembler<'_> {
                 AddReg => self.format_reg_reg("add"),
                 And(reg) => self.format_reg_imm("and", reg),
                 AndReg => self.format_reg_reg("and"),
+                Asr => self.format_shift_imm("asr"),
+                AsrReg => self.format_reg_reg("asr"),
                 BranchAlways => format!("bra {}", self.format_byte()),
                 BranchCc => format!("bcc {}", self.format_byte()),
                 BranchCs => format!("bcs {}", self.format_byte()),
@@ -1518,6 +1521,8 @@ mod tests {
             ("and ab, cd", &[u8::from(AndReg), 0x98]),
             ("add a, b", &[u8::from(AddReg), 0x10]),
             ("add cd, ef", &[u8::from(AddReg), 0xA9]),
+            ("asr a, 0x04", &[u8::from(Asr), 0x40]),
+            ("asr ab, c", &[u8::from(AsrReg), 0x28]),
             ("bcc 0x10", &[u8::from(BranchCc), 0x10]),
             ("bcs 0x10", &[u8::from(BranchCs), 0x10]),
             ("beq 0xF0", &[u8::from(BranchEq), 0xF0]),
@@ -1601,6 +1606,11 @@ mod tests {
             "and cd, a",
             "and a, 0x1000",
             "and 0x01, 0x0F",
+            "asr",
+            "asr a",
+            "asr ab, 0x0002",
+            "asr ab, cd",
+            "asr a, cd",
             "bcc",
             "bcs a",
             "bcs 0x1000",

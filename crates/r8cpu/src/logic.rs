@@ -26,6 +26,30 @@ pub fn and16(input: u16, mask: u16) -> u16 {
     input & mask
 }
 
+#[expect(clippy::cast_sign_loss, reason = "sign extension")]
+#[expect(clippy::cast_possible_wrap, reason = "sign extension")]
+#[must_use]
+pub fn asr(input: u8, mut shift: u8) -> (u8, bool) {
+    shift = shift.clamp(1, 8);
+    let signed_input = input as i8;
+    let value = signed_input.unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
+    let carry = (value & 1) != 0;
+    let result = value.unbounded_shr(1);
+    (result as u8, carry)
+}
+
+#[expect(clippy::cast_sign_loss, reason = "sign extension")]
+#[expect(clippy::cast_possible_wrap, reason = "sign extension")]
+#[must_use]
+pub fn asr16(input: u16, mut shift: u8) -> (u16, bool) {
+    shift = shift.clamp(1, 16);
+    let signed_input = input as i16;
+    let value = signed_input.unbounded_shr(u32::from(shift.strict_sub(1))); // clamped >= 1
+    let carry = (value & 1) != 0;
+    let result = value.unbounded_shr(1);
+    (result as u16, carry)
+}
+
 #[must_use]
 pub fn cmp(lhs: u8, rhs: u8) -> (u8, bool) {
     (lhs.wrapping_sub(rhs), lhs >= rhs)

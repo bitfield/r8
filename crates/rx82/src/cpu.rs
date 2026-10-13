@@ -2,8 +2,8 @@ use r8cpu::{
     flags::Flags,
     instructions::{InstructionKind, Operands},
     logic::{
-        add, add16, and, and16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, or, or16, shl,
-        shl16, sub, sub16,
+        add, add16, and, and16, asr, asr16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, or,
+        or16, shl, shl16, sub, sub16,
     },
     regs::{Reg, RegToReg, Regs, ShiftReg},
 };
@@ -398,6 +398,8 @@ impl Cpu {
             AddReg => self.add_reg(bus),
             And(reg) => self.bitwise_imm(and, and16, reg),
             AndReg => self.bitwise_reg(and, and16, bus),
+            Asr => self.shift_imm(asr, asr16, bus),
+            AsrReg => self.shift_reg(asr, asr16, bus),
             BranchAlways => self.branch(),
             BranchCc if !self.flags.carry => self.branch(),
             BranchCs if self.flags.carry => self.branch(),
@@ -1388,6 +1390,143 @@ mod tests {
         );
         assert_hex!(sys.cpu.regs.get16(AB), 0x0A00, "wrong AB");
         assert_eq!(sys.cpu.flags.zero, false, "zero set: non-zero result");
+    }
+
+    #[test]
+    #[expect(clippy::arbitrary_source_item_ordering, reason = "logical ordering")]
+    fn asr() {
+        use InstructionKind::Asr;
+        struct Case {
+            name: &'static str,
+            carry_in: bool,
+            input: u8,
+            shift: u8,
+            output: u8,
+            carry_out: bool,
+        }
+        let cases: &[Case] = &[
+            Case {
+                name: "shifts correctly",
+                carry_in: false,
+                input: 0b1111_0000,
+                shift: 0x04,
+                output: 0b1111_1111,
+                carry_out: false,
+            },
+            Case {
+                name: "clears carry",
+                carry_in: true,
+                input: 0b0001_0111,
+                shift: 0x04,
+                output: 0b0000_0001,
+                carry_out: false,
+            },
+            Case {
+                name: "sets carry",
+                carry_in: false,
+                input: 0b0111_1000,
+                shift: 0x04,
+                output: 0b0000_0111,
+                carry_out: true,
+            },
+            Case {
+                name: "min shift == 1",
+                carry_in: false,
+                input: 0x01,
+                shift: 0x00,
+                output: 0x00,
+                carry_out: true,
+            },
+            Case {
+                name: "max shift == 8",
+                carry_in: false,
+                input: 0b1111_0001,
+                shift: 0xFF,
+                output: 0b1111_1111,
+                carry_out: true,
+            },
+            Case {
+                name: "shift 8, no carry",
+                carry_in: true,
+                input: 0b0111_1111,
+                shift: 0x08,
+                output: 0b0000_0000,
+                carry_out: false,
+            },
+            Case {
+                name: "shift 8, carry",
+                carry_in: false,
+                input: 0b1111_1111,
+                shift: 0x08,
+                output: 0b1111_1111,
+                carry_out: true,
+            },
+        ];
+        let mut sys = System::default();
+        for case in cases {
+            sys.cpu.flags.carry = case.carry_in;
+            sys.cpu.regs.set(A, case.input);
+            sys.test_prog(&[
+                u8::from(Asr),
+                u8::from(ShiftReg {
+                    shift: case.shift,
+                    target: A,
+                }),
+            ]);
+            assert_hex!(
+                sys.cpu.regs.get(A),
+                case.output,
+                format!("{}: wrong A", case.name)
+            );
+            assert_eq!(
+                sys.cpu.flags.carry,
+                case.carry_out,
+                "{}: carry not {}",
+                case.name,
+                if case.carry_out { "set" } else { "cleared" }
+            );
+            assert_eq!(
+                sys.cpu.flags.negative,
+                case.output & 0x80 != 0,
+                "{}: negative not {}",
+                case.name,
+                if case.output & 0x80 != 0 {
+                    "set"
+                } else {
+                    "cleared"
+                }
+            );
+            assert_eq!(
+                sys.cpu.flags.zero,
+                case.output == 0,
+                "{}: zero not {}",
+                case.name,
+                if case.output == 0 { "set" } else { "cleared" }
+            );
+        }
+    }
+
+    #[test]
+    fn asr16() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "   ld ab, 0x8000 ; 0b1000_0000_0000_0000
+                asr ab, 0x09  ; ab=0b1111_1111_1100_0000 / 0xFFC0
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0xFFC0, "wrong AB");
+    }
+
+    #[test]
+    fn asr_reg() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "   ld ab, 0x0100
+                ld c, 0x01
+                asr ab, c
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0080, "wrong AB");
     }
 
     #[test]
