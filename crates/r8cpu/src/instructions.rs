@@ -117,6 +117,8 @@ pub enum InstructionKind {
     TestReg,
     /// Trap with a specified code.
     Trap,
+    /// Trap on overflow.
+    TrapV,
     /// Exclusive or immediate.
     Xor(Reg),
     /// Exclusive or register.
@@ -185,6 +187,7 @@ impl Display for InstructionKind {
                 Test(reg) => format!("test {reg}, N"),
                 TestReg => "test R1, R2".to_owned(),
                 Trap => "trap T".to_owned(),
+                TrapV => "trapv".to_owned(),
                 Xor(reg) => format!("xor {reg}, N"),
                 XorReg => "xor R1, R2".to_owned(),
             }
@@ -200,6 +203,7 @@ impl TryFrom<u8> for InstructionKind {
         Ok(match opcode {
             0x00 => Halt,
             0x01 => Nop,
+            0x02 => TrapV,
             0x03 => Sec,
             0x04 => Clc,
             0x05 => Sei,
@@ -316,6 +320,7 @@ impl From<InstructionKind> for u8 {
             Test(reg) => 0x90 | u8::from(reg),
             TestReg => 0x9F,
             Trap => 0xF9,
+            TrapV => 0x02,
             Xor(reg) => 0xB0 | u8::from(reg),
             XorReg => 0xBF,
         }
@@ -329,7 +334,7 @@ impl InstructionKind {
         use Operands::*;
         match *self {
             Clc | Cli | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret
-            | Rti | Sec | Sei => Zero,
+            | Rti | Sec | Sei | TrapV => Zero,
             AddReg | AndReg | Asr | AsrReg | BranchAlways | BranchCc | BranchCs | BranchEq
             | BranchMi | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect
             | LdReg | Lsr | LsrReg | OrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg

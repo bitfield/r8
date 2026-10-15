@@ -26,7 +26,7 @@ pub const BASE: u16 = 0x0100;
 pub const KEYWORDS: &[&str] = &[
     "add", "and", "asr", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cli",
     "cmp", "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "or", "org", "pop", "push",
-    "ret", "rti", "sec", "sei", "shl", "sub", "test", "trap", "xor",
+    "ret", "rti", "sec", "sei", "shl", "sub", "test", "trap", "trapv", "xor",
 ];
 
 /// Assembles a given source program.
@@ -105,6 +105,7 @@ impl Assembler {
             "sei" => self.emit_byte(u8::from(Sei)),
             "shl" => self.gen_shift(Shl, ShlReg),
             "trap" => self.gen_trap(),
+            "trapv" => self.emit_byte(u8::from(TrapV)),
             _ => unreachable!("unknown keyword '{kw}'"),
         }
     }
@@ -779,6 +780,7 @@ impl Iterator for Disassembler<'_> {
                 Test(reg) => self.format_reg_imm("test", reg),
                 TestReg => self.format_reg_reg("test"),
                 Trap => format!("trap {}", self.format_byte()),
+                TrapV => "trapv".into(),
                 Xor(reg) => self.format_reg_imm("xor", reg),
                 XorReg => self.format_reg_reg("xor"),
             }
@@ -1580,6 +1582,7 @@ mod tests {
             ("test cd, 0xFFFE", &[u8::from(Test(CD)), 0xFE, 0xFF]),
             ("test b, h", &[u8::from(TestReg), 0x71]),
             ("trap 0x01", &[u8::from(Trap), 0x01]),
+            ("trapv", &[u8::from(TrapV)]),
             ("xor a, 0x01", &[u8::from(Xor(A)), 0x01]),
             ("xor cd, 0xFFFE", &[u8::from(Xor(CD)), 0xFE, 0xFF]),
             ("xor ab, cd", &[u8::from(XorReg), 0x98]),
@@ -1708,6 +1711,8 @@ mod tests {
             "trap 0xFF",
             "trap a",
             "trap",
+            "trapv a",
+            "trapv 0x01",
             "xor",
             "xor ab, 0xFF",
             "xor cd, a",

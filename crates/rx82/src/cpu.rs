@@ -17,6 +17,12 @@ use crate::{
 /// Trap code for the 'illegal instruction' trap.
 pub const TRAP_ILLEGAL: u8 = 0x00;
 
+/// Trap code for the 'overflow' trap.
+pub const TRAP_OVERFLOW: u8 = 0x01;
+
+/// Trap code for the 'panic' trap.
+pub const TRAP_PANIC: u8 = 0x02;
+
 /// The hard-wired reset vector address.
 pub const VEC_RESET: u16 = 0xFFFE;
 
@@ -450,9 +456,10 @@ impl Cpu {
             Test(reg) => self.test_imm(reg),
             TestReg => self.test_reg(bus),
             Trap => self.trap(self.op_lo, bus),
+            TrapV if self.flags.overflow => self.trap(TRAP_OVERFLOW, bus),
             Xor(reg) => self.bitwise_imm(xor, xor16, reg),
             XorReg => self.bitwise_reg(xor, xor16, bus),
-            Nop | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe | BranchPl => {}
+            Nop | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe | BranchPl | TrapV => {}
         }
     }
 
@@ -3053,6 +3060,28 @@ mod tests {
         assert_hex!(sys.peek_mem(0x01FF), 0x02, "wrong low byte on stack");
         assert_hex!(sys.peek_mem(0x01FE), 0x01, "wrong flags on stack");
         assert_hex!(sys.peek_mem(0x01FD), 0x02, "wrong trap code");
+        assert_hex!(sys.cpu.regs.get16(SP), 0x01FC, "wrong SP");
+    }
+
+    #[test]
+    fn trapv() {
+        let mut sys = System::default();
+        sys.cpu.regs.set16(SP, 0x0200);
+        // trap vector 0x01 (overflow) points to OVERFLOW
+        sys.mem.load(0x0002, &[0x10, 0x01]).unwrap();
+        sys.cpu.flags.overflow = true;
+        sys.test_asm(
+            "   trapv
+                halt
+                org 0x0110
+            OVERFLOW:
+                halt",
+        );
+        assert_hex!(sys.cpu.pc, 0x0111, "wrong PC");
+        assert_hex!(sys.peek_mem(0x0200), 0x01, "wrong high byte on stack");
+        assert_hex!(sys.peek_mem(0x01FF), 0x01, "wrong low byte on stack");
+        assert_hex!(sys.peek_mem(0x01FE), 0x40, "wrong flags on stack");
+        assert_hex!(sys.peek_mem(0x01FD), 0x01, "wrong trap code");
         assert_hex!(sys.cpu.regs.get16(SP), 0x01FC, "wrong SP");
     }
 
