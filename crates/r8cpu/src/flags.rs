@@ -8,6 +8,8 @@ pub struct Flags {
     pub interrupt: bool,
     /// Indicates a negative result from the last operation.
     pub negative: bool,
+    /// Indicates signed arithemetic overflow.
+    pub overflow: bool,
     /// Indicates a zero result from the last operation.
     pub zero: bool,
 }
@@ -18,6 +20,7 @@ impl From<u8> for Flags {
             carry: value & 0x01 != 0,
             interrupt: value & 0x04 != 0,
             negative: value & 0x80 != 0,
+            overflow: value & 0x40 != 0,
             zero: value & 0x02 != 0,
         }
     }
@@ -29,6 +32,7 @@ impl From<Flags> for u8 {
         value |= u8::from(flags.carry);
         value |= u8::from(flags.interrupt).strict_shl(2);
         value |= u8::from(flags.negative).strict_shl(7);
+        value |= u8::from(flags.overflow).strict_shl(6);
         value |= u8::from(flags.zero).strict_shl(1);
         value
     }
@@ -45,5 +49,34 @@ impl Flags {
     pub fn update16(&mut self, value: u16) {
         self.negative = value & 0x8000 != 0;
         self.zero = value == 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flags_are_correctly_decoded() {
+        let flags = Flags {
+            carry: true,
+            interrupt: true,
+            negative: true,
+            overflow: true,
+            zero: true,
+        };
+        assert_eq!(Flags::from(0b1100_0111), flags);
+    }
+
+    #[test]
+    fn flags_are_correctly_encoded() {
+        let flags = Flags {
+            carry: true,
+            interrupt: true,
+            negative: true,
+            overflow: true,
+            zero: true,
+        };
+        assert_eq!(u8::from(flags), 0b1100_0111);
     }
 }

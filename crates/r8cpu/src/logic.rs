@@ -127,6 +127,18 @@ pub fn shl16(input: u16, mut shift: u8) -> (u16, bool) {
 }
 
 #[must_use]
+#[expect(clippy::cast_possible_wrap, reason = "checking sign")]
+pub fn signum(value: u8) -> i8 {
+    if (value as i8) < 0 { -1 } else { 1 }
+}
+
+#[must_use]
+#[expect(clippy::cast_possible_wrap, reason = "checking sign")]
+pub fn signum16(value: u16) -> i8 {
+    if (value as i16) < 0 { -1 } else { 1 }
+}
+
+#[must_use]
 pub fn sub(minuend: u8, subtrahend: u8, carry_in: bool) -> (u8, bool) {
     let (tmp_result, borrow1) = minuend.overflowing_sub(subtrahend);
     let borrow_in = u8::from(!carry_in);

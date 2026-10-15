@@ -3,7 +3,7 @@ use r8cpu::{
     instructions::{InstructionKind, Operands},
     logic::{
         add, add16, and, and16, asr, asr16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, or,
-        or16, shl, shl16, sub, sub16, xor, xor16,
+        or16, shl, shl16, signum, signum16, sub, sub16, xor, xor16,
     },
     regs::{Reg, RegToReg, Regs, ShiftReg},
 };
@@ -213,13 +213,14 @@ impl Device for Cpu {
 impl Cpu {
     /// Adds immediate value with carry.
     pub fn add(&mut self, target: Reg) {
-        if target.is16() {
+        let (augend_sign, addend_sign, result_sign) = if target.is16() {
             let augend = self.regs.get16(target);
             let addend = self.op();
             let (result, carry) = add16(augend, addend, self.flags.carry);
             self.regs.set16(target, result);
             self.flags.update16(result);
             self.flags.carry = carry;
+            (signum16(augend), signum16(addend), signum16(result))
         } else {
             let augend = self.regs.get(target);
             let addend = self.op_lo;
@@ -227,7 +228,9 @@ impl Cpu {
             self.regs.set(target, result);
             self.flags.update(result);
             self.flags.carry = carry;
-        }
+            (signum(augend), signum(addend), signum(result))
+        };
+        self.flags.overflow = augend_sign == addend_sign && result_sign != augend_sign;
     }
 
     /// Adds register value with carry.
@@ -727,22 +730,25 @@ impl Cpu {
     }
 
     /// Subtract with carry the immediate operand from the register `reg`.
-    pub fn sub(&mut self, reg: Reg) {
-        if reg.is16() {
-            let minuend = self.regs.get16(reg);
+    pub fn sub(&mut self, target: Reg) {
+        let (minuend_sign, subtrahend_sign, result_sign) = if target.is16() {
+            let minuend = self.regs.get16(target);
             let subtrahend = self.op();
             let (result, carry) = sub16(minuend, subtrahend, self.flags.carry);
-            self.regs.set16(reg, result);
+            self.regs.set16(target, result);
             self.flags.update16(result);
             self.flags.carry = carry;
+            (signum16(minuend), signum16(subtrahend), signum16(result))
         } else {
-            let minuend = self.regs.get(reg);
+            let minuend = self.regs.get(target);
             let subtrahend = self.op_lo;
             let (result, carry) = sub(minuend, subtrahend, self.flags.carry);
-            self.regs.set(reg, result);
+            self.regs.set(target, result);
             self.flags.update(result);
             self.flags.carry = carry;
-        }
+            (signum(minuend), signum(subtrahend), signum(result))
+        };
+        self.flags.overflow = minuend_sign != subtrahend_sign && result_sign != minuend_sign;
     }
 
     /// Subtract register with carry.
@@ -2344,6 +2350,16 @@ mod tests {
     }
 
     #[test]
+    fn nop() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "   nop
+                halt",
+        );
+        assert_hex!(sys.cpu.pc, 0x0102, "wrong PC");
+    }
+
+    #[test]
     fn or_reg() {
         let mut sys = System::default();
         sys.test_asm(
@@ -2369,13 +2385,124 @@ mod tests {
     }
 
     #[test]
-    fn nop() {
+    fn overflow() {
+        #[expect(clippy::arbitrary_source_item_ordering, reason = "logical ordering")]
+        struct Case {
+            name: &'static str,
+            program: &'static str,
+            overflow: bool,
+        }
+        let cases: &[Case] = &[
+            Case {
+                name: "add: overflow possible, overflow occurs",
+                program: "
+                ld a, 0x7F
+                clc
+                add a, 0x01",
+                overflow: true,
+            },
+            Case {
+                name: "add16: overflow possible, overflow occurs",
+                program: "
+                ld ab, 0x7FFF
+                clc
+                add ab, 0x0001",
+                overflow: true,
+            },
+            Case {
+                name: "add: overflow possible, no overflow",
+                program: "
+                ld a, 0x01
+                clc
+                add a, 0x02",
+                overflow: false,
+            },
+            Case {
+                name: "add16: overflow possible, no overflow",
+                program: "
+                ld ab, 0x0001
+                clc
+                add ab, 0x0002",
+                overflow: false,
+            },
+            Case {
+                name: "add: overflow impossible",
+                program: "
+                ld a, 0x80
+                clc
+                add a, 0x01",
+                overflow: false,
+            },
+            Case {
+                name: "add16: overflow impossible",
+                program: "
+                ld ab, 0x8000
+                clc
+                add ab, 0x0001",
+                overflow: false,
+            },
+            Case {
+                name: "sub: overflow possible, overflow occurs",
+                program: "
+                ld a, 0x80
+                clc
+                sub a, 0x7F",
+                overflow: true,
+            },
+            Case {
+                name: "sub16: overflow possible, overflow occurs",
+                program: "
+                ld ab, 0x8000
+                clc
+                sub ab, 0x7FFF",
+                overflow: true,
+            },
+            Case {
+                name: "sub: overflow possible, no overflow",
+                program: "
+                ld a, 0xFF
+                clc
+                sub a, 0x02",
+                overflow: false,
+            },
+            Case {
+                name: "sub16: overflow possible, no overflow",
+                program: "
+                ld ab, 0xFFFF
+                clc
+                sub ab, 0x0002",
+                overflow: false,
+            },
+            Case {
+                name: "sub: overflow impossible",
+                program: "
+                ld a, 0x02
+                sec
+                sub a, 0x7F",
+                overflow: false,
+            },
+            Case {
+                name: "sub16: overflow impossible",
+                program: "
+                ld ab, 0x0002
+                sec
+                sub ab, 0x7FFF",
+                overflow: false,
+            },
+        ];
         let mut sys = System::default();
-        sys.test_asm(
-            "   nop
-                halt",
-        );
-        assert_hex!(sys.cpu.pc, 0x0102, "wrong PC");
+        for case in cases {
+            sys.cpu.flags.overflow = false;
+            sys.test_asm(case.program);
+            assert_eq!(
+                sys.cpu.flags.overflow,
+                case.overflow,
+                "{}: '{}': overflow not {}",
+                case.name,
+                case.program,
+                if case.overflow { "set" } else { "cleared" }
+            );
+        }
     }
 
     #[test]
@@ -2454,28 +2581,6 @@ mod tests {
         assert_eq!(sys.cpu.flags.carry, true, "carry not set");
         assert_eq!(sys.cpu.flags.negative, false, "negative set");
         assert_eq!(sys.cpu.flags.zero, false, "zero not cleared");
-    }
-
-    #[test]
-    fn ps_is_correctly_decoded() {
-        let flags = Flags {
-            carry: true,
-            interrupt: true,
-            negative: true,
-            zero: true,
-        };
-        assert_eq!(Flags::from(0b1000_0111), flags);
-    }
-
-    #[test]
-    fn ps_is_correctly_encoded() {
-        let flags = Flags {
-            carry: true,
-            interrupt: true,
-            negative: true,
-            zero: true,
-        };
-        assert_eq!(u8::from(flags), 0b1000_0111);
     }
 
     #[test]
