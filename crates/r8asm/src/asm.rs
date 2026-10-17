@@ -26,7 +26,7 @@ pub const BASE: u16 = 0x0100;
 pub const KEYWORDS: &[&str] = &[
     "add", "and", "asr", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cli",
     "cmp", "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "or", "org", "pop", "push",
-    "ret", "rti", "sec", "sei", "shl", "sub", "test", "trap", "trapv", "xor",
+    "ret", "rol", "ror", "rti", "sec", "sei", "shl", "sub", "test", "trap", "trapv", "xor",
 ];
 
 /// Assembles a given source program.
@@ -100,6 +100,8 @@ impl Assembler {
             "pop" => self.gen_pop(),
             "push" => self.gen_push(),
             "ret" => self.emit_byte(u8::from(Ret)),
+            "rol" => self.gen_shift(Rol, RolReg),
+            "ror" => self.gen_shift(Ror, RorReg),
             "rti" => self.emit_byte(u8::from(Rti)),
             "sec" => self.emit_byte(u8::from(Sec)),
             "sei" => self.emit_byte(u8::from(Sei)),
@@ -537,7 +539,10 @@ impl Assembler {
         match self.next_token()? {
             ByteLiteral(shift) => {
                 self.emit_byte(u8::from(imm_kind))?;
-                self.emit_byte(u8::from(ShiftReg { shift, target }))
+                self.emit_byte(u8::from(ShiftReg {
+                    count: shift,
+                    target,
+                }))
             }
             Register(source) if !source.is16() => {
                 self.emit_byte(u8::from(reg_kind))?;
@@ -766,6 +771,10 @@ impl Iterator for Disassembler<'_> {
                 Push(reg) => format!("push {reg}"),
                 PushPS => "push ps".into(),
                 Ret => "ret".into(),
+                Rol => self.format_shift_imm("rol"),
+                RolReg => self.format_reg_reg("rol"),
+                Ror => self.format_shift_imm("ror"),
+                RorReg => self.format_reg_reg("ror"),
                 Rti => "rti".into(),
                 Sec => "sec".into(),
                 Sei => "sei".into(),
@@ -875,7 +884,10 @@ impl<'code> Disassembler<'code> {
     /// Disassembles a shift/rotate `X R, S` instruction.
     fn format_shift_imm(&mut self, name: &str) -> String {
         if let Some(&encoded) = self.code.next()
-            && let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(encoded)
+            && let Ok(ShiftReg {
+                count: shift,
+                target,
+            }) = ShiftReg::try_from(encoded)
         {
             format!("{name} {target}, {shift:#04X}")
         } else {
@@ -1569,6 +1581,10 @@ mod tests {
             ("push c", &[u8::from(Push(C))]),
             ("push ps", &[u8::from(PushPS)]),
             ("ret", &[u8::from(Ret)]),
+            ("rol a, 0x04", &[u8::from(Rol), 0x40]),
+            ("rol gh, a", &[u8::from(RolReg), 0x0B]),
+            ("ror a, 0x04", &[u8::from(Ror), 0x40]),
+            ("ror gh, a", &[u8::from(RorReg), 0x0B]),
             ("rti", &[u8::from(Rti)]),
             ("sec", &[u8::from(Sec)]),
             ("sei", &[u8::from(Sei)]),
@@ -1689,6 +1705,16 @@ mod tests {
             "push",
             "push ps, 0x01",
             "ret cd",
+            "rol",
+            "rol a",
+            "rol ab, 0x0002",
+            "rol ab, cd",
+            "rol 0x0000, cd",
+            "ror",
+            "ror a",
+            "ror ab, 0x0002",
+            "ror ab, cd",
+            "ror 0x0000, cd",
             "rti 0x0100",
             "sec ab",
             "sei 0x01",

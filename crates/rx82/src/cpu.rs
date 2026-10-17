@@ -3,7 +3,7 @@ use r8cpu::{
     instructions::{InstructionKind, Operands},
     logic::{
         add, add16, and, and16, asr, asr16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, or,
-        or16, shl, shl16, signum, signum16, sub, sub16, xor, xor16,
+        or16, rol, rol16, ror, ror16, shl, shl16, signum, signum16, sub, sub16, xor, xor16,
     },
     regs::{Reg, RegToReg, Regs, ShiftReg},
 };
@@ -442,6 +442,10 @@ impl Cpu {
             Push(reg) => self.push(reg, bus),
             PushPS => self.push_ps(bus),
             Ret => self.ret(bus),
+            Rol => self.rotate_imm(rol, rol16, bus),
+            RolReg => self.rotate_reg(rol, rol16, bus),
+            Ror => self.rotate_imm(ror, ror16, bus),
+            RorReg => self.rotate_reg(ror, ror16, bus),
             Rti => self.rti(bus),
             Sec => self.flags.carry = true,
             Sei => self.flags.interrupt = true,
@@ -626,6 +630,57 @@ impl Cpu {
         self.state = WaitRetLo;
     }
 
+    /// Performs a rotate instruction.
+    pub fn rotate<F8, F16>(&mut self, f8: F8, f16: F16, target: Reg, carry_in: bool, rotate: u8)
+    where
+        F8: FnOnce(u8, bool, u8) -> (u8, bool),
+        F16: FnOnce(u16, bool, u8) -> (u16, bool),
+    {
+        if target.is16() {
+            let input = self.regs.get16(target);
+            let (result, carry) = f16(input, carry_in, rotate);
+            self.regs.set16(target, result);
+            self.flags.update16(result);
+            self.flags.carry = carry;
+        } else {
+            let input = self.regs.get(target);
+            let (result, carry) = f8(input, carry_in, rotate);
+            self.regs.set(target, result);
+            self.flags.update(result);
+            self.flags.carry = carry;
+        }
+    }
+
+    /// Performs a rotate instruction on the target register by the operand rotate.
+    pub fn rotate_imm<F8, F16>(&mut self, f8: F8, f16: F16, bus: &mut Bus)
+    where
+        F8: FnOnce(u8, bool, u8) -> (u8, bool),
+        F16: FnOnce(u16, bool, u8) -> (u16, bool),
+    {
+        let Ok(ShiftReg { count, target }) = ShiftReg::try_from(self.op_lo) else {
+            self.trap(TRAP_ILLEGAL, bus);
+            return;
+        };
+        self.rotate(f8, f16, target, self.flags.carry, count);
+    }
+
+    /// Performs a rotate instruction on the target register by the contents of the
+    /// source register.
+    pub fn rotate_reg<F8, F16>(&mut self, f8: F8, f16: F16, bus: &mut Bus)
+    where
+        F8: FnOnce(u8, bool, u8) -> (u8, bool),
+        F16: FnOnce(u16, bool, u8) -> (u16, bool),
+    {
+        let (target, count) = match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if !source.is16() => (target, self.regs.get(source)),
+            _ => {
+                self.trap(TRAP_ILLEGAL, bus);
+                return;
+            }
+        };
+        self.rotate(f8, f16, target, self.flags.carry, count);
+    }
+
     /// Returns from a trap to a return address on the stack.
     pub fn rti(&mut self, bus: &mut Bus) {
         self.inc(Reg::SP); // skip trap code
@@ -633,7 +688,7 @@ impl Cpu {
         self.state = WaitFlags;
     }
 
-    /// Performs a shift/rotate instruction.
+    /// Performs a shift instruction.
     pub fn shift<F8, F16>(&mut self, f8: F8, f16: F16, target: Reg, shift: u8)
     where
         F8: FnOnce(u8, u8) -> (u8, bool),
@@ -654,21 +709,21 @@ impl Cpu {
         }
     }
 
-    /// Performs a shift/rotate instruction on the target register by the operand shift.
+    /// Performs a shift instruction on the target register by the operand shift.
     pub fn shift_imm<F8, F16>(&mut self, f8: F8, f16: F16, bus: &mut Bus)
     where
         F8: FnOnce(u8, u8) -> (u8, bool),
         F16: FnOnce(u16, u8) -> (u16, bool),
     {
-        let Ok(ShiftReg { shift, target }) = ShiftReg::try_from(self.op_lo) else {
+        let Ok(ShiftReg { count, target }) = ShiftReg::try_from(self.op_lo) else {
             self.trap(TRAP_ILLEGAL, bus);
             return;
         };
-        self.shift(f8, f16, target, shift);
+        self.shift(f8, f16, target, count);
     }
 
-    /// Performs a shift/rotate instruction on the target register by the contents of
-    /// the source register.
+    /// Performs a shift instruction on the target register by the contents of the
+    /// source register.
     pub fn shift_reg<F8, F16>(&mut self, f8: F8, f16: F16, bus: &mut Bus)
     where
         F8: FnOnce(u8, u8) -> (u8, bool),
@@ -1484,7 +1539,7 @@ mod tests {
             sys.test_prog(&[
                 u8::from(Asr),
                 u8::from(ShiftReg {
-                    shift: case.shift,
+                    count: case.shift,
                     target: A,
                 }),
             ]);
@@ -2227,7 +2282,7 @@ mod tests {
             name: &'static str,
             carry_in: bool,
             input: u8,
-            shift: u8,
+            count: u8,
             output: u8,
             carry_out: bool,
         }
@@ -2236,7 +2291,7 @@ mod tests {
                 name: "shifts correctly",
                 carry_in: false,
                 input: 0xF0,
-                shift: 0x04,
+                count: 0x04,
                 output: 0x0F,
                 carry_out: false,
             },
@@ -2244,7 +2299,7 @@ mod tests {
                 name: "clears carry",
                 carry_in: true,
                 input: 0x17,
-                shift: 0x04,
+                count: 0x04,
                 output: 0x01,
                 carry_out: false,
             },
@@ -2252,7 +2307,7 @@ mod tests {
                 name: "sets carry",
                 carry_in: false,
                 input: 0x78,
-                shift: 0x04,
+                count: 0x04,
                 output: 0x07,
                 carry_out: true,
             },
@@ -2260,7 +2315,7 @@ mod tests {
                 name: "min shift == 1",
                 carry_in: false,
                 input: 0x01,
-                shift: 0x00,
+                count: 0x00,
                 output: 0x00,
                 carry_out: true,
             },
@@ -2268,7 +2323,7 @@ mod tests {
                 name: "max shift == 8",
                 carry_in: false,
                 input: 0xF1,
-                shift: 0xFF,
+                count: 0xFF,
                 output: 0x00,
                 carry_out: true,
             },
@@ -2276,7 +2331,7 @@ mod tests {
                 name: "shift 8, no carry",
                 carry_in: true,
                 input: 0x7F,
-                shift: 0x08,
+                count: 0x08,
                 output: 0x00,
                 carry_out: false,
             },
@@ -2284,7 +2339,7 @@ mod tests {
                 name: "shift 8, carry",
                 carry_in: false,
                 input: 0xFF,
-                shift: 0x08,
+                count: 0x08,
                 output: 0x00,
                 carry_out: true,
             },
@@ -2296,7 +2351,7 @@ mod tests {
             sys.test_prog(&[
                 u8::from(Lsr),
                 u8::from(ShiftReg {
-                    shift: case.shift,
+                    count: case.count,
                     target: A,
                 }),
             ]);
@@ -2640,6 +2695,288 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::arbitrary_source_item_ordering, reason = "logical ordering")]
+    fn rol() {
+        use InstructionKind::Rol;
+        struct Case {
+            name: &'static str,
+            carry_in: bool,
+            input: u8,
+            count: u8,
+            output: u8,
+            carry_out: bool,
+        }
+        let cases: &[Case] = &[
+            Case {
+                name: "rotates correctly",
+                carry_in: false,
+                input: 0b0000_1111,
+                count: 0x05,
+                output: 0b1110_0000,
+                carry_out: true,
+            },
+            Case {
+                name: "sets carry",
+                carry_in: true,
+                input: 0b0111_0111,
+                count: 0x02,
+                output: 0b1101_1110,
+                carry_out: true,
+            },
+            Case {
+                name: "clears carry",
+                carry_in: true,
+                input: 0b1110_0010,
+                count: 0x04,
+                output: 0b0010_1111,
+                carry_out: false,
+            },
+            Case {
+                name: "min rotate == 1",
+                carry_in: false,
+                input: 0b0000_0001,
+                count: 0x00,
+                output: 0b0000_0010,
+                carry_out: false,
+            },
+            Case {
+                name: "max rotate == 8",
+                carry_in: false,
+                input: 0b1111_0001,
+                count: 0xFF,
+                output: 0b0111_1000,
+                carry_out: true,
+            },
+            Case {
+                name: "rotate 8, no carry",
+                carry_in: false,
+                input: 0b0111_1110,
+                count: 0x08,
+                output: 0b0011_1111,
+                carry_out: false,
+            },
+            Case {
+                name: "rotate 8, carry",
+                carry_in: true,
+                input: 0b1111_1111,
+                count: 0x08,
+                output: 0b1111_1111,
+                carry_out: true,
+            },
+        ];
+        let mut sys = System::default();
+        for case in cases {
+            sys.cpu.flags.carry = case.carry_in;
+            sys.cpu.regs.set(A, case.input);
+            sys.test_prog(&[
+                u8::from(Rol),
+                u8::from(ShiftReg {
+                    count: case.count,
+                    target: A,
+                }),
+            ]);
+            assert_hex!(
+                sys.cpu.regs.get(A),
+                case.output,
+                format!("{}: wrong A", case.name)
+            );
+            assert_eq!(
+                sys.cpu.flags.carry,
+                case.carry_out,
+                "{}: carry not {}",
+                case.name,
+                if case.carry_out { "set" } else { "cleared" }
+            );
+            assert_eq!(
+                sys.cpu.flags.negative,
+                case.output & 0x80 != 0,
+                "{}: negative not {}",
+                case.name,
+                if case.output & 0x80 != 0 {
+                    "set"
+                } else {
+                    "cleared"
+                }
+            );
+            assert_eq!(
+                sys.cpu.flags.zero,
+                case.output == 0,
+                "{}: zero not {}",
+                case.name,
+                if case.output == 0 { "set" } else { "cleared" }
+            );
+        }
+    }
+
+    #[test]
+    fn rol16() {
+        let mut sys = System::default();
+        sys.cpu.flags.carry = false;
+        sys.test_asm(
+            "   ld ab, 0x0081
+                rol ab, 0x09
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x0200, "wrong AB");
+        assert_eq!(sys.cpu.flags.carry, true, "carry not set");
+    }
+
+    #[test]
+    fn rol_reg() {
+        let mut sys = System::default();
+        sys.cpu.flags.carry = true;
+        sys.test_asm(
+            "   ld ab, 0x8101
+                ld c, 0x04
+                rol ab, c
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x101C, "wrong AB");
+        assert_eq!(sys.cpu.flags.carry, false, "carry not cleared");
+    }
+
+    #[test]
+    #[expect(clippy::arbitrary_source_item_ordering, reason = "logical ordering")]
+    fn ror() {
+        use InstructionKind::Ror;
+        struct Case {
+            name: &'static str,
+            carry_in: bool,
+            input: u8,
+            count: u8,
+            output: u8,
+            carry_out: bool,
+        }
+        let cases: &[Case] = &[
+            Case {
+                name: "rotates correctly",
+                carry_in: false,
+                input: 0b0000_1111,
+                count: 0x05,
+                output: 0b1111_0000,
+                carry_out: false,
+            },
+            Case {
+                name: "sets carry",
+                carry_in: true,
+                input: 0b0111_0111,
+                count: 0x02,
+                output: 0b1101_1101,
+                carry_out: true,
+            },
+            Case {
+                name: "clears carry",
+                carry_in: true,
+                input: 0b1110_0010,
+                count: 0x04,
+                output: 0b0101_1110,
+                carry_out: false,
+            },
+            Case {
+                name: "min rotate == 1",
+                carry_in: false,
+                input: 0b0000_0001,
+                count: 0x00,
+                output: 0b0000_0000,
+                carry_out: true,
+            },
+            Case {
+                name: "max rotate == 8",
+                carry_in: false,
+                input: 0b1111_0001,
+                count: 0xFF,
+                output: 0b1110_0010,
+                carry_out: true,
+            },
+            Case {
+                name: "rotate 8, no carry",
+                carry_in: false,
+                input: 0b0111_1110,
+                count: 0x08,
+                output: 0b1111_1100,
+                carry_out: false,
+            },
+            Case {
+                name: "rotate 8, carry",
+                carry_in: true,
+                input: 0b1111_1111,
+                count: 0x08,
+                output: 0b1111_1111,
+                carry_out: true,
+            },
+        ];
+        let mut sys = System::default();
+        for case in cases {
+            sys.cpu.flags.carry = case.carry_in;
+            sys.cpu.regs.set(A, case.input);
+            sys.test_prog(&[
+                u8::from(Ror),
+                u8::from(ShiftReg {
+                    count: case.count,
+                    target: A,
+                }),
+            ]);
+            assert_hex!(
+                sys.cpu.regs.get(A),
+                case.output,
+                format!("{}: wrong A", case.name)
+            );
+            assert_eq!(
+                sys.cpu.flags.carry,
+                case.carry_out,
+                "{}: carry not {}",
+                case.name,
+                if case.carry_out { "set" } else { "cleared" }
+            );
+            assert_eq!(
+                sys.cpu.flags.negative,
+                case.output & 0x80 != 0,
+                "{}: negative not {}",
+                case.name,
+                if case.output & 0x80 != 0 {
+                    "set"
+                } else {
+                    "cleared"
+                }
+            );
+            assert_eq!(
+                sys.cpu.flags.zero,
+                case.output == 0,
+                "{}: zero not {}",
+                case.name,
+                if case.output == 0 { "set" } else { "cleared" }
+            );
+        }
+    }
+
+    #[test]
+    fn ror16() {
+        let mut sys = System::default();
+        sys.cpu.flags.carry = false;
+        sys.test_asm(
+            "   ld ab, 0x0082
+                ror ab, 0x09
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x8200, "wrong AB");
+        assert_eq!(sys.cpu.flags.carry, false, "carry not cleared");
+    }
+
+    #[test]
+    fn ror_reg() {
+        let mut sys = System::default();
+        sys.cpu.flags.carry = true;
+        sys.test_asm(
+            "   ld ab, 0x8101
+                ld c, 0x03
+                ror ab, c
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get16(AB), 0x7020, "wrong AB");
+        assert_eq!(sys.cpu.flags.carry, false, "carry not cleared");
+    }
+
+    #[test]
     fn rti() {
         let mut sys = System::default();
         sys.cpu.regs.set16(SP, 0x01FB);
@@ -2682,7 +3019,7 @@ mod tests {
             name: &'static str,
             carry_in: bool,
             input: u8,
-            shift: u8,
+            count: u8,
             output: u8,
             carry_out: bool,
         }
@@ -2691,7 +3028,7 @@ mod tests {
                 name: "shifts correctly",
                 carry_in: false,
                 input: 0x0F,
-                shift: 0x04,
+                count: 0x04,
                 output: 0xF0,
                 carry_out: false,
             },
@@ -2699,7 +3036,7 @@ mod tests {
                 name: "sets carry",
                 carry_in: true,
                 input: 0x77,
-                shift: 0x02,
+                count: 0x02,
                 output: 0xDC,
                 carry_out: true,
             },
@@ -2707,7 +3044,7 @@ mod tests {
                 name: "clears carry",
                 carry_in: true,
                 input: 0xE2,
-                shift: 0x04,
+                count: 0x04,
                 output: 0x20,
                 carry_out: false,
             },
@@ -2715,7 +3052,7 @@ mod tests {
                 name: "min shift == 1",
                 carry_in: false,
                 input: 0x01,
-                shift: 0x00,
+                count: 0x00,
                 output: 0x02,
                 carry_out: false,
             },
@@ -2723,7 +3060,7 @@ mod tests {
                 name: "max shift == 8",
                 carry_in: false,
                 input: 0xF1,
-                shift: 0xFF,
+                count: 0xFF,
                 output: 0x00,
                 carry_out: true,
             },
@@ -2731,7 +3068,7 @@ mod tests {
                 name: "shift 8, no carry",
                 carry_in: true,
                 input: 0x7E,
-                shift: 0x08,
+                count: 0x08,
                 output: 0x00,
                 carry_out: false,
             },
@@ -2739,7 +3076,7 @@ mod tests {
                 name: "shift 8, carry",
                 carry_in: false,
                 input: 0xFF,
-                shift: 0x08,
+                count: 0x08,
                 output: 0x00,
                 carry_out: true,
             },
@@ -2751,7 +3088,7 @@ mod tests {
             sys.test_prog(&[
                 u8::from(Shl),
                 u8::from(ShiftReg {
-                    shift: case.shift,
+                    count: case.count,
                     target: A,
                 }),
             ]);

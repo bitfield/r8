@@ -88,6 +88,14 @@ pub enum InstructionKind {
     PushPS,
     /// Return from a subroutine call.
     Ret,
+    /// Rotate left immediate.
+    Rol,
+    /// Rotate left register.
+    RolReg,
+    /// Rotate right immediate.
+    Ror,
+    /// Rotate right register.
+    RorReg,
     /// Return from a trap.
     Rti,
     /// Set carry flag.
@@ -173,6 +181,10 @@ impl Display for InstructionKind {
                 Push(reg) => format!("push {reg}"),
                 PushPS => "push ps".to_owned(),
                 Ret => "ret".to_owned(),
+                Rol => "rol R, S".to_owned(),
+                RolReg => "rol R1, R2".to_owned(),
+                Ror => "ror R, S".to_owned(),
+                RorReg => "ror R1, R2".to_owned(),
                 Rti => "rti".to_owned(),
                 Sec => "sec".to_owned(),
                 Sei => "sei".to_owned(),
@@ -244,6 +256,10 @@ impl TryFrom<u8> for InstructionKind {
             0xC3 => LsrReg,
             0xC4 => Asr,
             0xC5 => AsrReg,
+            0xC6 => Rol,
+            0xC7 => RolReg,
+            0xC8 => Ror,
+            0xC9 => RorReg,
             0xD0..=0xDB => Push(reg?),
             0xDC => PushPS,
             0xE0..=0xEB => Pop(reg?),
@@ -306,6 +322,10 @@ impl From<InstructionKind> for u8 {
             Push(reg) => 0xD0 | u8::from(reg),
             PushPS => 0xDC,
             Ret => 0x07,
+            Rol => 0xC6,
+            RolReg => 0xC7,
+            Ror => 0xC8,
+            RorReg => 0xC9,
             Rti => 0x08,
             Sec => 0x03,
             Sei => 0x05,
@@ -337,8 +357,8 @@ impl InstructionKind {
             | Rti | Sec | Sei | TrapV => Zero,
             AddReg | AndReg | Asr | AsrReg | BranchAlways | BranchCc | BranchCs | BranchEq
             | BranchMi | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect
-            | LdReg | Lsr | LsrReg | OrReg | Shl | ShlReg | StoreIndirect | SubReg | TestReg
-            | Trap | XorReg => One,
+            | LdReg | Lsr | LsrReg | OrReg | Rol | RolReg | Ror | RorReg | Shl | ShlReg
+            | StoreIndirect | SubReg | TestReg | Trap | XorReg => One,
             Add(reg) | And(reg) | Cmp(reg) | Ld(reg) | Or(reg) | Sub(reg) | Test(reg)
             | Xor(reg) => {
                 if reg.is16() {

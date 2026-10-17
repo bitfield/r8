@@ -109,6 +109,62 @@ pub fn or16(input: u16, mask: u16) -> u16 {
 }
 
 #[must_use]
+pub fn rol(input: u8, mut carry: bool, mut rotate: u8) -> (u8, bool) {
+    rotate = rotate.clamp(1, 8);
+    let mut carry_out;
+    let mut result = input;
+    for _ in 0..rotate {
+        carry_out = result & 0x80 != 0;
+        result = result.unbounded_shl(1);
+        result |= u8::from(carry);
+        carry = carry_out;
+    }
+    (result, carry)
+}
+
+#[must_use]
+pub fn rol16(input: u16, mut carry: bool, mut rotate: u8) -> (u16, bool) {
+    rotate = rotate.clamp(1, 16);
+    let mut carry_out;
+    let mut result = input;
+    for _ in 0..rotate {
+        carry_out = result & 0x8000 != 0;
+        result = result.unbounded_shl(1);
+        result |= u16::from(carry);
+        carry = carry_out;
+    }
+    (result, carry)
+}
+
+#[must_use]
+pub fn ror(input: u8, mut carry: bool, mut rotate: u8) -> (u8, bool) {
+    rotate = rotate.clamp(1, 8);
+    let mut carry_out;
+    let mut result = input;
+    for _ in 0..rotate {
+        carry_out = result & 0x01 != 0;
+        result = result.unbounded_shr(1);
+        result |= u8::from(carry).unbounded_shl(7);
+        carry = carry_out;
+    }
+    (result, carry)
+}
+
+#[must_use]
+pub fn ror16(input: u16, mut carry: bool, mut rotate: u8) -> (u16, bool) {
+    rotate = rotate.clamp(1, 16);
+    let mut carry_out;
+    let mut result = input;
+    for _ in 0..rotate {
+        carry_out = result & 0x0001 != 0;
+        result = result.unbounded_shr(1);
+        result |= u16::from(carry).unbounded_shl(15);
+        carry = carry_out;
+    }
+    (result, carry)
+}
+
+#[must_use]
 pub fn shl(input: u8, mut shift: u8) -> (u8, bool) {
     shift = shift.clamp(1, 8);
     let value = input.unbounded_shl(u32::from(shift.strict_sub(1))); // clamped >= 1
