@@ -322,6 +322,7 @@ impl Assembler {
                     }
                 }
                 Ok(Newline) | Err(_) => break,
+                Ok(WordLiteral(word)) => self.emit_word(word)?,
                 Ok(other) => bail!("expected immediate byte, got {other}"),
             }
         }
@@ -1387,6 +1388,15 @@ mod tests {
         data 0x01, 0x02, 0x03";
         let generated = assemble_with_debug(source).unwrap();
         let object = &[u8::from(Nop), 0x01, 0x02, 0x03];
+        assert_asm!(source, generated, object);
+    }
+
+    #[test]
+    fn data_emits_words_as_le_bytes() {
+        let source = "
+        data 0xBEEF, 0xCAFE";
+        let generated = assemble_with_debug(source).unwrap();
+        let object = &[0xEF, 0xBE, 0xFE, 0xCA];
         assert_asm!(source, generated, object);
     }
 
