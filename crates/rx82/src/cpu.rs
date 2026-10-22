@@ -1,10 +1,9 @@
 use r8cpu::{
+    constants::*,
+    cpuid::{Capabilities, Cpuid},
     flags::Flags,
     instructions::{InstructionKind, Operands},
-    logic::{
-        add, add16, and, and16, asr, asr16, cmp, cmp16, dec, dec16, inc, inc16, lsr, lsr16, or,
-        or16, rol, rol16, ror, ror16, shl, shl16, signum, signum16, sub, sub16, xor, xor16,
-    },
+    logic::{self, signum, signum16},
     regs::{Reg, RegToReg, Regs, ShiftReg},
 };
 
@@ -14,18 +13,6 @@ use crate::{
     system::Device,
 };
 
-/// Trap code for the 'illegal instruction' trap.
-pub const TRAP_ILLEGAL: u8 = 0x00;
-
-/// Trap code for the 'overflow' trap.
-pub const TRAP_OVERFLOW: u8 = 0x01;
-
-/// Trap code for the 'panic' trap.
-pub const TRAP_PANIC: u8 = 0x02;
-
-/// The hard-wired reset vector address.
-pub const VEC_RESET: u16 = 0xFFFE;
-
 /// The system CPU.
 #[derive(Debug)]
 pub struct Cpu {
@@ -33,6 +20,8 @@ pub struct Cpu {
     pub flags: Flags,
     /// Is the CPU halted?
     pub halt: bool,
+    /// CPU identification information.
+    pub id: Cpuid,
     /// The current instruction.
     pub ins: InstructionKind,
     /// The current operand (high byte).
@@ -52,6 +41,15 @@ impl Default for Cpu {
         Self {
             flags: Flags::default(),
             halt: Default::default(),
+            id: Cpuid {
+                capabilities: Capabilities { emulation: true },
+                extended: 0,
+                family: FAMILY_R8,
+                highest: 0x04,
+                model: MODEL_R8_1,
+                revision: 0,
+                vendor: VENDOR_SSTI,
+            },
             ins: InstructionKind::Nop,
             op_hi: Default::default(),
             op_lo: Default::default(),
@@ -130,7 +128,7 @@ impl Device for Cpu {
             }
             ReadDec(addr) => {
                 let value = bus.data;
-                let result = dec(value);
+                let result = logic::dec(value);
                 bus.write_mem(addr, result);
                 self.flags.update(result);
                 FetchOpcode
@@ -143,7 +141,7 @@ impl Device for Cpu {
             }
             ReadInc(addr) => {
                 let value = bus.data;
-                let result = inc(value);
+                let result = logic::inc(value);
                 bus.write_mem(addr, result);
                 self.flags.update(result);
                 FetchOpcode
@@ -222,7 +220,7 @@ impl Cpu {
         let (augend_sign, addend_sign, result_sign) = if target.is16() {
             let augend = self.regs.get16(target);
             let addend = self.op();
-            let (result, carry) = add16(augend, addend, self.flags.carry);
+            let (result, carry) = logic::add16(augend, addend, self.flags.carry);
             self.regs.set16(target, result);
             self.flags.update16(result);
             self.flags.carry = carry;
@@ -230,7 +228,7 @@ impl Cpu {
         } else {
             let augend = self.regs.get(target);
             let addend = self.op_lo;
-            let (result, carry) = add(augend, addend, self.flags.carry);
+            let (result, carry) = logic::add(augend, addend, self.flags.carry);
             self.regs.set(target, result);
             self.flags.update(result);
             self.flags.carry = carry;
@@ -245,14 +243,14 @@ impl Cpu {
             if target.is16() {
                 let augend = self.regs.get16(target);
                 let addend = self.regs.get16(source);
-                let (result, carry) = add16(augend, addend, self.flags.carry);
+                let (result, carry) = logic::add16(augend, addend, self.flags.carry);
                 self.regs.set16(target, result);
                 self.flags.update16(result);
                 self.flags.carry = carry;
             } else {
                 let augend = self.regs.get(target);
                 let addend = self.regs.get(source);
-                let (result, carry) = add(augend, addend, self.flags.carry);
+                let (result, carry) = logic::add(augend, addend, self.flags.carry);
                 self.regs.set(target, result);
                 self.flags.update(result);
                 self.flags.carry = carry;
@@ -331,13 +329,13 @@ impl Cpu {
         if reg.is16() {
             let lhs = self.regs.get16(reg);
             let rhs = self.op();
-            let (result, carry) = cmp16(lhs, rhs);
+            let (result, carry) = logic::cmp16(lhs, rhs);
             self.flags.update16(result);
             self.flags.carry = carry;
         } else {
             let lhs = self.regs.get(reg);
             let rhs = self.op_lo;
-            let (result, carry) = cmp(lhs, rhs);
+            let (result, carry) = logic::cmp(lhs, rhs);
             self.flags.update(result);
             self.flags.carry = carry;
         }
@@ -349,13 +347,13 @@ impl Cpu {
             if target.is16() {
                 let lhs = self.regs.get16(target);
                 let rhs = self.regs.get16(source);
-                let (result, carry) = cmp16(lhs, rhs);
+                let (result, carry) = logic::cmp16(lhs, rhs);
                 self.flags.update16(result);
                 self.flags.carry = carry;
             } else {
                 let lhs = self.regs.get(target);
                 let rhs = self.regs.get(source);
-                let (result, carry) = cmp(lhs, rhs);
+                let (result, carry) = logic::cmp(lhs, rhs);
                 self.flags.update(result);
                 self.flags.carry = carry;
             }
@@ -364,18 +362,40 @@ impl Cpu {
         }
     }
 
-    /// Decrements the value in register `reg`.
-    pub fn dec(&mut self, reg: Reg) {
-        if reg.is16() {
-            let input = self.regs.get16(reg);
-            let result = dec16(input);
-            self.regs.set16(reg, result);
-            self.flags.update16(result);
-        } else {
-            let input = self.regs.get(reg);
-            let result = dec(input);
-            self.regs.set(reg, result);
-            self.flags.update(result);
+    /// Identifies the CPU model or capabilities.
+    pub fn cpuid(&mut self) {
+        match self.op_lo {
+            QUERY_CAPABILITIES => {
+                let result = u8::from(self.id.capabilities);
+                self.regs.set(Reg::A, result);
+                self.flags.update(result);
+            }
+            QUERY_EXTENDED => {
+                let result = self.id.extended;
+                self.regs.set(Reg::A, result);
+                self.flags.update(result);
+            }
+            QUERY_HIGHEST => {
+                let result = self.id.highest;
+                self.regs.set(Reg::A, result);
+                self.flags.update(result);
+            }
+            QUERY_MODEL => {
+                self.regs.set(Reg::A, self.id.family);
+                self.regs.set(Reg::B, self.id.model);
+                self.regs.set(Reg::C, self.id.revision);
+            }
+            QUERY_VENDOR => {
+                self.regs.set(Reg::A, self.id.vendor[0]);
+                self.regs.set(Reg::B, self.id.vendor[1]);
+                self.regs.set(Reg::C, self.id.vendor[2]);
+                self.regs.set(Reg::D, self.id.vendor[3]);
+                self.regs.set(Reg::E, self.id.vendor[4]);
+                self.regs.set(Reg::F, self.id.vendor[5]);
+                self.regs.set(Reg::G, self.id.vendor[6]);
+                self.regs.set(Reg::H, self.id.vendor[7]);
+            }
+            _ => {}
         }
     }
 
@@ -399,16 +419,31 @@ impl Cpu {
         self.state = WaitDec(addr);
     }
 
+    /// Decrements the value in register `reg`.
+    pub fn decrement(&mut self, reg: Reg) {
+        if reg.is16() {
+            let input = self.regs.get16(reg);
+            let result = logic::dec16(input);
+            self.regs.set16(reg, result);
+            self.flags.update16(result);
+        } else {
+            let input = self.regs.get(reg);
+            let result = logic::dec(input);
+            self.regs.set(reg, result);
+            self.flags.update(result);
+        }
+    }
+
     /// Executes an instruction.
     pub fn execute(&mut self, ins: InstructionKind, bus: &mut Bus) {
         use InstructionKind::*;
         match ins {
             Add(reg) => self.add(reg),
             AddReg => self.add_reg(bus),
-            And(reg) => self.bitwise_imm(and, and16, reg),
-            AndReg => self.bitwise_reg(and, and16, bus),
-            Asr => self.shift_imm(asr, asr16, bus),
-            AsrReg => self.shift_reg(asr, asr16, bus),
+            And(reg) => self.bitwise_imm(logic::and, logic::and16, reg),
+            AndReg => self.bitwise_reg(logic::and, logic::and16, bus),
+            Asr => self.shift_imm(logic::asr, logic::asr16, bus),
+            AsrReg => self.shift_reg(logic::asr, logic::asr16, bus),
             BranchAlways => self.branch(),
             BranchCc if !self.flags.carry => self.branch(),
             BranchCs if self.flags.carry => self.branch(),
@@ -421,48 +456,49 @@ impl Cpu {
             Cli => self.flags.interrupt = false,
             Cmp(reg) => self.cmp(reg),
             CmpReg => self.cmp_reg(bus),
-            Dec(reg) => self.dec(reg),
+            Cpuid => self.cpuid(),
+            Dec(reg) => self.decrement(reg),
             DecIndirect => self.dec_indirect(bus),
             DecMem => self.dec_mem(bus),
             Halt => self.halt = true,
             Jmp => self.pc = self.op(),
-            Inc(reg) => self.inc(reg),
+            Inc(reg) => self.increment(reg),
             IncIndirect => self.inc_indirect(bus),
             IncMem => self.inc_mem(bus),
             LdIndexed => self.ld_indexed(bus),
             Ld(reg) => self.ld_imm(reg),
             LdIndirect => self.ld_indirect(bus),
             LdReg => self.ld_reg(bus),
-            Lsr => self.shift_imm(lsr, lsr16, bus),
-            LsrReg => self.shift_reg(lsr, lsr16, bus),
-            Or(reg) => self.bitwise_imm(or, or16, reg),
-            OrReg => self.bitwise_reg(or, or16, bus),
+            Lsr => self.shift_imm(logic::lsr, logic::lsr16, bus),
+            LsrReg => self.shift_reg(logic::lsr, logic::lsr16, bus),
+            Or(reg) => self.bitwise_imm(logic::or, logic::or16, reg),
+            OrReg => self.bitwise_reg(logic::or, logic::or16, bus),
             Pop(reg) => self.pop(reg, bus),
             PopPS => self.pop_ps(bus),
             Push(reg) => self.push(reg, bus),
             PushPS => self.push_ps(bus),
             Ret => self.ret(bus),
-            Rol => self.rotate_imm(rol, rol16, bus),
-            RolReg => self.rotate_reg(rol, rol16, bus),
-            Ror => self.rotate_imm(ror, ror16, bus),
-            RorReg => self.rotate_reg(ror, ror16, bus),
+            Rol => self.rotate_imm(logic::rol, logic::rol16, bus),
+            RolReg => self.rotate_reg(logic::rol, logic::rol16, bus),
+            Ror => self.rotate_imm(logic::ror, logic::ror16, bus),
+            RorReg => self.rotate_reg(logic::ror, logic::ror16, bus),
             Rti => self.rti(bus),
             Sec => self.flags.carry = true,
             Sei => self.flags.interrupt = true,
-            Shl => self.shift_imm(shl, shl16, bus),
-            ShlReg => self.shift_reg(shl, shl16, bus),
+            Shl => self.shift_imm(logic::shl, logic::shl16, bus),
+            ShlReg => self.shift_reg(logic::shl, logic::shl16, bus),
             Store(reg) => self.store_direct(reg, bus),
             StoreIndexed => self.store_indexed(bus),
             StoreIndirect => self.store_indirect(bus),
             StoreIndirectImm => self.store_indirect_imm(bus),
-            Sub(reg) => self.sub(reg),
+            Sub(reg) => self.subtract(reg),
             SubReg => self.sub_reg(bus),
             Test(reg) => self.test_imm(reg),
             TestReg => self.test_reg(bus),
             Trap => self.trap(self.op_lo, bus),
             TrapV if self.flags.overflow => self.trap(TRAP_OVERFLOW, bus),
-            Xor(reg) => self.bitwise_imm(xor, xor16, reg),
-            XorReg => self.bitwise_reg(xor, xor16, bus),
+            Xor(reg) => self.bitwise_imm(logic::xor, logic::xor16, reg),
+            XorReg => self.bitwise_reg(logic::xor, logic::xor16, bus),
             Nop | BranchCc | BranchCs | BranchEq | BranchMi | BranchNe | BranchPl | TrapV => {}
         }
     }
@@ -471,21 +507,6 @@ impl Cpu {
     pub fn fetch_and_advance(&mut self, bus: &mut Bus) {
         bus.read_mem(self.pc);
         self.pc = self.pc.wrapping_add(1);
-    }
-
-    /// Increments the value in register `reg`.
-    pub fn inc(&mut self, reg: Reg) {
-        if reg.is16() {
-            let input = self.regs.get16(reg);
-            let result = inc16(input);
-            self.regs.set16(reg, result);
-            self.flags.update16(result);
-        } else {
-            let input = self.regs.get(reg);
-            let result = inc(input);
-            self.regs.set(reg, result);
-            self.flags.update(result);
-        }
     }
 
     /// Increments the value at the address in the operand register.
@@ -506,6 +527,21 @@ impl Cpu {
         let addr = self.op();
         bus.read_mem(addr);
         self.state = WaitInc(addr);
+    }
+
+    /// Increments the value in register `reg`.
+    pub fn increment(&mut self, reg: Reg) {
+        if reg.is16() {
+            let input = self.regs.get16(reg);
+            let result = logic::inc16(input);
+            self.regs.set16(reg, result);
+            self.flags.update16(result);
+        } else {
+            let input = self.regs.get(reg);
+            let result = logic::inc(input);
+            self.regs.set(reg, result);
+            self.flags.update(result);
+        }
     }
 
     /// Loads the register `reg` with the immediate operand.
@@ -683,7 +719,7 @@ impl Cpu {
 
     /// Returns from a trap to a return address on the stack.
     pub fn rti(&mut self, bus: &mut Bus) {
-        self.inc(Reg::SP); // skip trap code
+        self.increment(Reg::SP); // skip trap code
         self.stack_pop(bus);
         self.state = WaitFlags;
     }
@@ -791,42 +827,20 @@ impl Cpu {
         }
     }
 
-    /// Subtract with carry the immediate operand from the register `reg`.
-    pub fn sub(&mut self, target: Reg) {
-        let (minuend_sign, subtrahend_sign, result_sign) = if target.is16() {
-            let minuend = self.regs.get16(target);
-            let subtrahend = self.op();
-            let (result, carry) = sub16(minuend, subtrahend, self.flags.carry);
-            self.regs.set16(target, result);
-            self.flags.update16(result);
-            self.flags.carry = carry;
-            (signum16(minuend), signum16(subtrahend), signum16(result))
-        } else {
-            let minuend = self.regs.get(target);
-            let subtrahend = self.op_lo;
-            let (result, carry) = sub(minuend, subtrahend, self.flags.carry);
-            self.regs.set(target, result);
-            self.flags.update(result);
-            self.flags.carry = carry;
-            (signum(minuend), signum(subtrahend), signum(result))
-        };
-        self.flags.overflow = minuend_sign != subtrahend_sign && result_sign != minuend_sign;
-    }
-
     /// Subtract register with carry.
     pub fn sub_reg(&mut self, bus: &mut Bus) {
         if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
             if target.is16() {
                 let minuend = self.regs.get16(target);
                 let subtrahend = self.regs.get16(source);
-                let (result, carry) = sub16(minuend, subtrahend, self.flags.carry);
+                let (result, carry) = logic::sub16(minuend, subtrahend, self.flags.carry);
                 self.regs.set16(target, result);
                 self.flags.update16(result);
                 self.flags.carry = carry;
             } else {
                 let minuend = self.regs.get(target);
                 let subtrahend = self.regs.get(source);
-                let (result, carry) = sub(minuend, subtrahend, self.flags.carry);
+                let (result, carry) = logic::sub(minuend, subtrahend, self.flags.carry);
                 self.regs.set(target, result);
                 self.flags.update(result);
                 self.flags.carry = carry;
@@ -836,17 +850,39 @@ impl Cpu {
         }
     }
 
+    /// Subtract with carry the immediate operand from the register `reg`.
+    pub fn subtract(&mut self, target: Reg) {
+        let (minuend_sign, subtrahend_sign, result_sign) = if target.is16() {
+            let minuend = self.regs.get16(target);
+            let subtrahend = self.op();
+            let (result, carry) = logic::sub16(minuend, subtrahend, self.flags.carry);
+            self.regs.set16(target, result);
+            self.flags.update16(result);
+            self.flags.carry = carry;
+            (signum16(minuend), signum16(subtrahend), signum16(result))
+        } else {
+            let minuend = self.regs.get(target);
+            let subtrahend = self.op_lo;
+            let (result, carry) = logic::sub(minuend, subtrahend, self.flags.carry);
+            self.regs.set(target, result);
+            self.flags.update(result);
+            self.flags.carry = carry;
+            (signum(minuend), signum(subtrahend), signum(result))
+        };
+        self.flags.overflow = minuend_sign != subtrahend_sign && result_sign != minuend_sign;
+    }
+
     /// Test bits immediate.
     pub fn test_imm(&mut self, target: Reg) {
         if target.is16() {
             let input = self.regs.get16(target);
             let mask = self.op();
-            let result = and16(input, mask);
+            let result = logic::and16(input, mask);
             self.flags.update16(result);
         } else {
             let input = self.regs.get(target);
             let mask = self.op_lo;
-            let result = and(input, mask);
+            let result = logic::and(input, mask);
             self.flags.update(result);
         }
     }
@@ -857,12 +893,12 @@ impl Cpu {
             if target.is16() {
                 let input = self.regs.get16(target);
                 let mask = self.regs.get16(source);
-                let result = and16(input, mask);
+                let result = logic::and16(input, mask);
                 self.flags.update16(result);
             } else {
                 let input = self.regs.get(target);
                 let mask = self.regs.get(source);
-                let result = and(input, mask);
+                let result = logic::and(input, mask);
                 self.flags.update(result);
             }
         } else {
@@ -1874,6 +1910,82 @@ mod tests {
     }
 
     #[test]
+    fn cmp16() {
+        let mut sys = System::default();
+        sys.cpu.flags.zero = false;
+        sys.cpu.flags.carry = false;
+        sys.test_asm(
+            "   ld ab, 0x0201
+                cmp ab, 0x0201
+                halt",
+        );
+        assert_eq!(sys.cpu.flags.carry, true, "carry clear: equal cmp");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, true, "zero clear: equal cmp");
+    }
+
+    #[test]
+    fn cmp_reg() {
+        let mut sys = System::default();
+        sys.cpu.flags.zero = false;
+        sys.cpu.flags.carry = false;
+        sys.test_asm(
+            "   ld a, 0x01
+                ld b, 0x01
+                cmp a, b
+                halt",
+        );
+        assert_eq!(sys.cpu.flags.carry, true, "carry clear: equal cmp");
+        assert_eq!(
+            sys.cpu.flags.negative, false,
+            "negative set: non-negative result"
+        );
+        assert_eq!(sys.cpu.flags.zero, true, "zero clear: equal cmp");
+    }
+
+    #[test]
+    fn cpuid() {
+        let mut sys = System::default();
+        sys.test_asm(
+            "   cpuid 0x00 ; highest function
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0x04, "wrong A");
+        sys.test_asm(
+            "   cpuid 0x01 ; vendor ID
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), b'S', "wrong A");
+        assert_hex!(sys.cpu.regs.get(B), b'S', "wrong B");
+        assert_hex!(sys.cpu.regs.get(C), b'T', "wrong C");
+        assert_hex!(sys.cpu.regs.get(D), b'i', "wrong D");
+        assert_hex!(sys.cpu.regs.get(E), b' ', "wrong E");
+        assert_hex!(sys.cpu.regs.get(F), b' ', "wrong F");
+        assert_hex!(sys.cpu.regs.get(G), b' ', "wrong G");
+        assert_hex!(sys.cpu.regs.get(H), b' ', "wrong H");
+        sys.test_asm(
+            "   cpuid 0x02 ; family / model / revision
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0x01, "wrong A");
+        assert_hex!(sys.cpu.regs.get(B), 0x01, "wrong B");
+        assert_hex!(sys.cpu.regs.get(C), 0x00, "wrong C");
+        sys.test_asm(
+            "   cpuid 0x03 ; extended ISA pages
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0x00, "wrong A");
+        sys.test_asm(
+            "   cpuid 0x04 ; capabilities
+                halt",
+        );
+        assert_hex!(sys.cpu.regs.get(A), 0x01, "wrong A");
+    }
+
+    #[test]
     fn dec() {
         let mut sys = System::default();
         sys.test_asm(
@@ -1918,24 +2030,6 @@ mod tests {
             "negative set: non-negative result"
         );
         assert_eq!(sys.cpu.flags.zero, true, "zero clear: dec to zero");
-    }
-
-    #[test]
-    fn cmp16() {
-        let mut sys = System::default();
-        sys.cpu.flags.zero = false;
-        sys.cpu.flags.carry = false;
-        sys.test_asm(
-            "   ld ab, 0x0201
-                cmp ab, 0x0201
-                halt",
-        );
-        assert_eq!(sys.cpu.flags.carry, true, "carry clear: equal cmp");
-        assert_eq!(
-            sys.cpu.flags.negative, false,
-            "negative set: non-negative result"
-        );
-        assert_eq!(sys.cpu.flags.zero, true, "zero clear: equal cmp");
     }
 
     #[test]

@@ -25,8 +25,8 @@ pub const BASE: u16 = 0x0100;
 /// Keywords recognised by the assembler.
 pub const KEYWORDS: &[&str] = &[
     "add", "and", "asr", "bcc", "bcs", "beq", "bmi", "bne", "bpl", "bra", "call", "clc", "cli",
-    "cmp", "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "or", "org", "pop", "push",
-    "ret", "rol", "ror", "rti", "sec", "sei", "shl", "sub", "test", "trap", "trapv", "xor",
+    "cmp", "cpuid", "data", "dec", "halt", "inc", "jmp", "ld", "lsr", "nop", "or", "org", "pop",
+    "push", "ret", "rol", "ror", "rti", "sec", "sei", "shl", "sub", "test", "trap", "trapv", "xor",
 ];
 
 /// Assembles a given source program.
@@ -88,6 +88,7 @@ impl Assembler {
             "call" => self.gen_call(),
             "clc" => self.emit_byte(u8::from(Clc)),
             "cli" => self.emit_byte(u8::from(Cli)),
+            "cpuid" => self.gen_cpuid(),
             "data" => self.gen_data(),
             "dec" => self.gen_dec(),
             "halt" => self.emit_byte(u8::from(Halt)),
@@ -298,6 +299,21 @@ impl Assembler {
         };
         self.emit_byte(u8::from(Call))?;
         self.emit_word(addr)?;
+        Ok(())
+    }
+
+    /// Generates a `cpuid N` instruction.
+    ///
+    /// # Errors
+    ///
+    /// * Missing or invalid query number.
+    pub fn gen_cpuid(&mut self) -> Result<()> {
+        let query = match self.next_token()? {
+            ByteLiteral(query) => query,
+            other => bail!("expected query number, got {other}"),
+        };
+        self.emit_byte(u8::from(Cpuid))?;
+        self.emit_byte(query)?;
         Ok(())
     }
 
@@ -750,6 +766,7 @@ impl Iterator for Disassembler<'_> {
                 Cli => "cli".into(),
                 Cmp(reg) => self.format_reg_imm("cmp", reg),
                 CmpReg => self.format_reg_reg("cmp"),
+                Cpuid => format!("cpuid {}", self.format_byte()),
                 Dec(reg) => format!("dec {reg}"),
                 DecIndirect => self.format_dec_indirect(),
                 DecMem => format!("dec ({})", self.format_word()),
@@ -1559,6 +1576,7 @@ mod tests {
             ("cmp d, a", &[u8::from(CmpReg), 0x03]),
             ("cmp gh, 0xDEAD", &[u8::from(Cmp(GH)), 0xAD, 0xDE]),
             ("cmp ab, sp", &[u8::from(CmpReg), 0xC8]),
+            ("cpuid 0x00", &[u8::from(Cpuid), 0x00]),
             ("dec (0xBABE)", &[u8::from(DecMem), 0xBE, 0xBA]),
             ("dec (gh)", &[u8::from(DecIndirect), 0x0B]),
             ("dec ab", &[u8::from(Dec(AB))]),
@@ -1657,6 +1675,9 @@ mod tests {
             "clc 0x00",
             "cli a",
             "cmp a, b, d",
+            "cpuid",
+            "cpuid 0xFFFF",
+            "cpuid a",
             "data (",
             "data \"©\"",
             "data bogus",

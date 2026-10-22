@@ -43,6 +43,8 @@ pub enum InstructionKind {
     Cmp(Reg),
     /// Compare register.
     CmpReg,
+    /// CPU identification.
+    Cpuid,
     /// Decrement a register.
     Dec(Reg),
     /// Decrement a memory location in a register.
@@ -159,6 +161,7 @@ impl Display for InstructionKind {
                 Cli => "cli".to_owned(),
                 Cmp(reg) => format!("cmp {reg}, N"),
                 CmpReg => "cmp R1, R2".to_owned(),
+                Cpuid => "cpuid".to_owned(),
                 Dec(reg) => format!("dec {reg}"),
                 DecIndirect => "dec (RR)".to_owned(),
                 DecMem => "dec (NN)".to_owned(),
@@ -274,6 +277,7 @@ impl TryFrom<u8> for InstructionKind {
             0xF7 => Jmp,
             0xF8 => Call,
             0xF9 => Trap,
+            0xFA => Cpuid,
             _ => bail!("invalid opcode {opcode}"),
         })
     }
@@ -300,6 +304,7 @@ impl From<InstructionKind> for u8 {
             Cli => 0x06,
             Cmp(reg) => 0x70 | u8::from(reg),
             CmpReg => 0x7F,
+            Cpuid => 0xFA,
             Dec(reg) => 0x40 | u8::from(reg),
             DecIndirect => 0x4D,
             DecMem => 0x4E,
@@ -356,9 +361,9 @@ impl InstructionKind {
             Clc | Cli | Dec(_) | Halt | Inc(_) | Nop | Pop(_) | PopPS | Push(_) | PushPS | Ret
             | Rti | Sec | Sei | TrapV => Zero,
             AddReg | AndReg | Asr | AsrReg | BranchAlways | BranchCc | BranchCs | BranchEq
-            | BranchMi | BranchNe | BranchPl | CmpReg | DecIndirect | IncIndirect | LdIndirect
-            | LdReg | Lsr | LsrReg | OrReg | Rol | RolReg | Ror | RorReg | Shl | ShlReg
-            | StoreIndirect | SubReg | TestReg | Trap | XorReg => One,
+            | BranchMi | BranchNe | BranchPl | CmpReg | Cpuid | DecIndirect | IncIndirect
+            | LdIndirect | LdReg | Lsr | LsrReg | OrReg | Rol | RolReg | Ror | RorReg | Shl
+            | ShlReg | StoreIndirect | SubReg | TestReg | Trap | XorReg => One,
             Add(reg) | And(reg) | Cmp(reg) | Ld(reg) | Or(reg) | Sub(reg) | Test(reg)
             | Xor(reg) => {
                 if reg.is16() {
