@@ -239,15 +239,16 @@ impl Cpu {
 
     /// Adds register value with carry.
     pub fn add_reg(&mut self, bus: &mut Bus) {
-        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
-            if target.is16() {
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if source.is16() && target.is16() => {
                 let augend = self.regs.get16(target);
                 let addend = self.regs.get16(source);
                 let (result, carry) = logic::add16(augend, addend, self.flags.carry);
                 self.regs.set16(target, result);
                 self.flags.update16(result);
                 self.flags.carry = carry;
-            } else {
+            }
+            Ok(RegToReg { source, target }) if source.is8() && target.is8() => {
                 let augend = self.regs.get(target);
                 let addend = self.regs.get(source);
                 let (result, carry) = logic::add(augend, addend, self.flags.carry);
@@ -255,8 +256,7 @@ impl Cpu {
                 self.flags.update(result);
                 self.flags.carry = carry;
             }
-        } else {
-            self.trap(TRAP_ILLEGAL, bus);
+            _ => self.trap(TRAP_ILLEGAL, bus),
         }
     }
 
@@ -287,22 +287,22 @@ impl Cpu {
         F8: FnOnce(u8, u8) -> u8,
         F16: FnOnce(u16, u16) -> u16,
     {
-        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
-            if target.is16() {
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if target.is16() => {
                 let input = self.regs.get16(target);
                 let mask = self.regs.get16(source);
                 let result = f16(input, mask);
                 self.regs.set16(target, result);
                 self.flags.update16(result);
-            } else {
+            }
+            Ok(RegToReg { source, target }) => {
                 let input = self.regs.get(target);
                 let mask = self.regs.get(source);
                 let result = f8(input, mask);
                 self.regs.set(target, result);
                 self.flags.update(result);
             }
-        } else {
-            self.trap(TRAP_ILLEGAL, bus);
+            _ => self.trap(TRAP_ILLEGAL, bus),
         }
     }
 
@@ -343,22 +343,22 @@ impl Cpu {
 
     /// Compares registers.
     pub fn cmp_reg(&mut self, bus: &mut Bus) {
-        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
-            if target.is16() {
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if source.is16() && target.is16() => {
                 let lhs = self.regs.get16(target);
                 let rhs = self.regs.get16(source);
                 let (result, carry) = logic::cmp16(lhs, rhs);
                 self.flags.update16(result);
                 self.flags.carry = carry;
-            } else {
+            }
+            Ok(RegToReg { source, target }) if source.is8() && target.is8() => {
                 let lhs = self.regs.get(target);
                 let rhs = self.regs.get(source);
                 let (result, carry) = logic::cmp(lhs, rhs);
                 self.flags.update(result);
                 self.flags.carry = carry;
             }
-        } else {
-            self.trap(TRAP_ILLEGAL, bus);
+            _ => self.trap(TRAP_ILLEGAL, bus),
         }
     }
 
@@ -401,14 +401,13 @@ impl Cpu {
 
     /// Decrements the value at the address in the operand register.
     pub fn dec_indirect(&mut self, bus: &mut Bus) {
-        if let Ok(reg) = Reg::try_from(self.op_lo)
-            && reg.is16()
-        {
-            let addr = self.regs.get16(reg);
-            bus.read_mem(addr);
-            self.state = WaitDec(addr);
-        } else {
-            self.trap(TRAP_ILLEGAL, bus);
+        match Reg::try_from(self.op_lo) {
+            Ok(reg) if reg.is16() => {
+                let addr = self.regs.get16(reg);
+                bus.read_mem(addr);
+                self.state = WaitDec(addr);
+            }
+            _ => self.trap(TRAP_ILLEGAL, bus),
         }
     }
 
@@ -511,14 +510,13 @@ impl Cpu {
 
     /// Increments the value at the address in the operand register.
     pub fn inc_indirect(&mut self, bus: &mut Bus) {
-        if let Ok(reg) = Reg::try_from(self.op_lo)
-            && reg.is16()
-        {
-            let addr = self.regs.get16(reg);
-            bus.read_mem(addr);
-            self.state = WaitInc(addr);
-        } else {
-            self.trap(TRAP_ILLEGAL, bus);
+        match Reg::try_from(self.op_lo) {
+            Ok(reg) if reg.is16() => {
+                let addr = self.regs.get16(reg);
+                bus.read_mem(addr);
+                self.state = WaitInc(addr);
+            }
+            _ => self.trap(TRAP_ILLEGAL, bus),
         }
     }
 
@@ -558,22 +556,24 @@ impl Cpu {
     /// Loads the target register with the contents of the address in the source
     /// register plus the operand index.
     pub fn ld_indexed(&mut self, bus: &mut Bus) {
-        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
-            let addr = self.regs.get16(source).wrapping_add(u16::from(self.op_hi));
-            bus.read_mem(addr);
-            self.state = WaitData(target);
-        } else {
-            self.trap(TRAP_ILLEGAL, bus);
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if source.is16() && target.is8() => {
+                let addr = self.regs.get16(source).wrapping_add(u16::from(self.op_hi));
+                bus.read_mem(addr);
+                self.state = WaitData(target);
+            }
+            _ => self.trap(TRAP_ILLEGAL, bus),
         }
     }
 
     /// Loads the target register with the contents of the address in the source register.
     pub fn ld_indirect(&mut self, bus: &mut Bus) {
-        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
-            bus.read_mem(self.regs.get16(source));
-            self.state = WaitData(target);
-        } else {
-            self.trap(TRAP_ILLEGAL, bus);
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if source.is16() && target.is8() => {
+                bus.read_mem(self.regs.get16(source));
+                self.state = WaitData(target);
+            }
+            _ => self.trap(TRAP_ILLEGAL, bus),
         }
     }
 
@@ -585,7 +585,7 @@ impl Cpu {
                 self.regs.set16(target, value);
                 self.flags.update16(value);
             }
-            Ok(RegToReg { source, target }) if !source.is16() && !target.is16() => {
+            Ok(RegToReg { source, target }) if source.is8() && target.is8() => {
                 let value = self.regs.get(source);
                 self.regs.set(target, value);
                 self.flags.update(value);
@@ -707,14 +707,13 @@ impl Cpu {
         F8: FnOnce(u8, bool, u8) -> (u8, bool),
         F16: FnOnce(u16, bool, u8) -> (u16, bool),
     {
-        let (target, count) = match RegToReg::try_from(self.op_lo) {
-            Ok(RegToReg { source, target }) if !source.is16() => (target, self.regs.get(source)),
-            _ => {
-                self.trap(TRAP_ILLEGAL, bus);
-                return;
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if source.is8() => {
+                let count = self.regs.get(source);
+                self.rotate(f8, f16, target, self.flags.carry, count);
             }
-        };
-        self.rotate(f8, f16, target, self.flags.carry, count);
+            _ => self.trap(TRAP_ILLEGAL, bus),
+        }
     }
 
     /// Returns from a trap to a return address on the stack.
@@ -765,14 +764,13 @@ impl Cpu {
         F8: FnOnce(u8, u8) -> (u8, bool),
         F16: FnOnce(u16, u8) -> (u16, bool),
     {
-        let (target, shift) = match RegToReg::try_from(self.op_lo) {
-            Ok(RegToReg { source, target }) if !source.is16() => (target, self.regs.get(source)),
-            _ => {
-                self.trap(TRAP_ILLEGAL, bus);
-                return;
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if source.is8() => {
+                let shift = self.regs.get(source);
+                self.shift(f8, f16, target, shift);
             }
-        };
-        self.shift(f8, f16, target, shift);
+            _ => self.trap(TRAP_ILLEGAL, bus),
+        }
     }
 
     /// Reads the current top-of-stack value, adjusting SP.
@@ -799,7 +797,7 @@ impl Cpu {
     /// Stores the contents of the source register at the address in the target register plus the operand index.
     pub fn store_indexed(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
-            Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {
+            Ok(RegToReg { source, target }) if source.is8() && target.is16() => {
                 let addr = self.regs.get16(target).wrapping_add(u16::from(self.op_hi));
                 bus.write_mem(addr, self.regs.get(source));
             }
@@ -810,7 +808,7 @@ impl Cpu {
     /// Stores the contents of the source register at the address in the target register.
     pub fn store_indirect(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
-            Ok(RegToReg { source, target }) if !source.is16() && target.is16() => {
+            Ok(RegToReg { source, target }) if source.is8() && target.is16() => {
                 bus.write_mem(self.regs.get16(target), self.regs.get(source));
             }
             _ => self.trap(TRAP_ILLEGAL, bus),
@@ -829,15 +827,16 @@ impl Cpu {
 
     /// Subtract register with carry.
     pub fn sub_reg(&mut self, bus: &mut Bus) {
-        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
-            if target.is16() {
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if target.is16() => {
                 let minuend = self.regs.get16(target);
                 let subtrahend = self.regs.get16(source);
                 let (result, carry) = logic::sub16(minuend, subtrahend, self.flags.carry);
                 self.regs.set16(target, result);
                 self.flags.update16(result);
                 self.flags.carry = carry;
-            } else {
+            }
+            Ok(RegToReg { source, target }) => {
                 let minuend = self.regs.get(target);
                 let subtrahend = self.regs.get(source);
                 let (result, carry) = logic::sub(minuend, subtrahend, self.flags.carry);
@@ -845,8 +844,7 @@ impl Cpu {
                 self.flags.update(result);
                 self.flags.carry = carry;
             }
-        } else {
-            self.trap(TRAP_ILLEGAL, bus);
+            _ => self.trap(TRAP_ILLEGAL, bus),
         }
     }
 
@@ -889,20 +887,20 @@ impl Cpu {
 
     /// Test bits register.
     pub fn test_reg(&mut self, bus: &mut Bus) {
-        if let Ok(RegToReg { source, target }) = RegToReg::try_from(self.op_lo) {
-            if target.is16() {
+        match RegToReg::try_from(self.op_lo) {
+            Ok(RegToReg { source, target }) if target.is16() => {
                 let input = self.regs.get16(target);
                 let mask = self.regs.get16(source);
                 let result = logic::and16(input, mask);
                 self.flags.update16(result);
-            } else {
+            }
+            Ok(RegToReg { source, target }) => {
                 let input = self.regs.get(target);
                 let mask = self.regs.get(source);
                 let result = logic::and(input, mask);
                 self.flags.update(result);
             }
-        } else {
-            self.trap(TRAP_ILLEGAL, bus);
+            _ => self.trap(TRAP_ILLEGAL, bus),
         }
     }
 
@@ -2333,6 +2331,19 @@ mod tests {
             "negative set: non-negative result"
         );
         assert_eq!(sys.cpu.flags.zero, true, "zero not set");
+        sys.mem.set(0xBFFC, 0xFF); // trap code will overwrite this
+        sys.test_prog(&[
+            u8::from(Ld(SP)),
+            0xFF,
+            0xBF,
+            u8::from(LdIndirect),
+            0x98, // ld ab, (cd)
+        ]);
+        assert_hex!(
+            sys.mem.get(0xBFFC),
+            TRAP_ILLEGAL,
+            "`ld ab, (cd)` is illegal"
+        );
     }
 
     #[test]
@@ -3280,6 +3291,19 @@ mod tests {
         );
         let value = sys.mem.get(0xBABE);
         assert_hex!(value, 0xFF, "wrong mem value");
+        sys.mem.set(0xBFFC, 0xFF); // trap code will overwrite this
+        sys.test_prog(&[
+            u8::from(Ld(SP)),
+            0xFF,
+            0xBF,
+            u8::from(StoreIndirect),
+            0x89, // ld (cd), ab
+        ]);
+        assert_hex!(
+            sys.mem.get(0xBFFC),
+            TRAP_ILLEGAL,
+            "`ld (cd), ab` is illegal"
+        );
     }
 
     #[test]

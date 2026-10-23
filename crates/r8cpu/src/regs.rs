@@ -121,6 +121,12 @@ impl Reg {
     pub fn is16(&self) -> bool {
         matches!(self, Reg::AB | Reg::CD | Reg::EF | Reg::GH | Reg::SP)
     }
+
+    /// Returns true if `reg` is an 8-bit register.
+    #[must_use]
+    pub fn is8(&self) -> bool {
+        !self.is16()
+    }
 }
 
 pub struct RegToReg {
