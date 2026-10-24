@@ -1,6 +1,6 @@
 [package]
 name = "r8cpu"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 authors = ["John Arundel <john@bitfieldconsulting.com>"]
 description = """Support for the R8 fantasy retro CPU architecture."""

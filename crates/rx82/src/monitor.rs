@@ -4,14 +4,15 @@ use std::io::{Write as _, stdin, stdout};
 
 use crate::{state::State::FetchOpcode, system::System};
 
-const BANNER: &str = "RMON v1.0 (C) 1977 Solid State Technologies, Inc.";
+const BANNER: &str = "RMON v1.0 (C) 1976 Solid State Technologies, Inc.";
 
 const USAGE: &str = "Commands:
 G [<address>] = Go (run till halted)
 H             = Help
 M [<address>] = Memory dump
-S [<address>] = Single step
 Q             = Quit
+R             = Register display
+S [<address>] = Single step
 Enter         = Repeat last command";
 
 /// A user command.
@@ -25,6 +26,8 @@ pub enum Command {
     Memory,
     /// Quit the monitor.
     Quit,
+    /// Display registers.
+    Registers,
     /// Step the system by one instruction.
     Step,
 }
@@ -59,6 +62,7 @@ impl Monitor {
             "" => (self.last_cmd.unwrap_or(Step), None),
             cmd if cmd.starts_with('G') => (Go, parse_arg(cmd)),
             cmd if cmd.starts_with('M') => (Memory, parse_arg(cmd)),
+            cmd if cmd.starts_with('R') => (Registers, None),
             cmd if cmd.starts_with('S') => (Step, parse_arg(cmd)),
             cmd if cmd.starts_with('Q') => (Quit, None),
             _ => (Help, None),
@@ -71,6 +75,7 @@ impl Monitor {
     pub fn go(&mut self, addr: Option<u16>) {
         self.step = false;
         self.run(addr);
+        self.sys.debug_print();
     }
 
     /// Prints usage information.
@@ -88,12 +93,13 @@ impl Monitor {
         self.sys.cpu.pc = 0x0100;
         self.last_cmd = Some(Step);
         println!("{BANNER}");
+        self.sys.debug_print();
         loop {
-            self.sys.debug_print();
             match self.get_command()? {
                 (Go, addr) => self.go(addr),
                 (Help, _) => self.help(),
                 (Memory, addr) => self.memory(addr),
+                (Registers, _) => self.sys.debug_print(),
                 (Step, addr) => self.step(addr),
                 (Quit, _) => break,
             }
@@ -156,6 +162,7 @@ impl Monitor {
     pub fn step(&mut self, addr: Option<u16>) {
         self.step = true;
         self.run(addr);
+        self.sys.debug_print();
         if self.sys.cpu.halt {
             println!("halted");
         }

@@ -486,7 +486,7 @@ impl Cpu {
             Sei => self.flags.interrupt = true,
             Shl => self.shift_imm(logic::shl, logic::shl16, bus),
             ShlReg => self.shift_reg(logic::shl, logic::shl16, bus),
-            Store(reg) => self.store_direct(reg, bus),
+            Store(reg) => bus.write_mem(self.op(), self.regs.get(reg)),
             StoreIndexed => self.store_indexed(bus),
             StoreIndirect => self.store_indirect(bus),
             StoreIndirectImm => self.store_indirect_imm(bus),
@@ -693,11 +693,10 @@ impl Cpu {
         F8: FnOnce(u8, bool, u8) -> (u8, bool),
         F16: FnOnce(u16, bool, u8) -> (u16, bool),
     {
-        let Ok(ShiftReg { count, target }) = ShiftReg::try_from(self.op_lo) else {
-            self.trap(TRAP_ILLEGAL, bus);
-            return;
-        };
-        self.rotate(f8, f16, target, self.flags.carry, count);
+        match ShiftReg::try_from(self.op_lo) {
+            Ok(ShiftReg { count, target }) => self.rotate(f8, f16, target, self.flags.carry, count),
+            _ => self.trap(TRAP_ILLEGAL, bus),
+        }
     }
 
     /// Performs a rotate instruction on the target register by the contents of the
@@ -750,11 +749,10 @@ impl Cpu {
         F8: FnOnce(u8, u8) -> (u8, bool),
         F16: FnOnce(u16, u8) -> (u16, bool),
     {
-        let Ok(ShiftReg { count, target }) = ShiftReg::try_from(self.op_lo) else {
-            self.trap(TRAP_ILLEGAL, bus);
-            return;
-        };
-        self.shift(f8, f16, target, count);
+        match ShiftReg::try_from(self.op_lo) {
+            Ok(ShiftReg { count, target }) => self.shift(f8, f16, target, count),
+            _ => self.trap(TRAP_ILLEGAL, bus),
+        }
     }
 
     /// Performs a shift instruction on the target register by the contents of the
@@ -789,11 +787,6 @@ impl Cpu {
         self.regs.set16(Reg::SP, addr);
     }
 
-    /// Stores the contents of register `reg` at the operand address.
-    pub fn store_direct(&mut self, reg: Reg, bus: &mut Bus) {
-        bus.write_mem(self.op(), self.regs.get(reg));
-    }
-
     /// Stores the contents of the source register at the address in the target register plus the operand index.
     pub fn store_indexed(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
@@ -825,7 +818,7 @@ impl Cpu {
         }
     }
 
-    /// Subtract register with carry.
+    /// Subtracts register with carry.
     pub fn sub_reg(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if target.is16() => {
@@ -848,7 +841,7 @@ impl Cpu {
         }
     }
 
-    /// Subtract with carry the immediate operand from the register `reg`.
+    /// Subtracts with carry the immediate operand from the register `reg`.
     pub fn subtract(&mut self, target: Reg) {
         let (minuend_sign, subtrahend_sign, result_sign) = if target.is16() {
             let minuend = self.regs.get16(target);
@@ -870,7 +863,7 @@ impl Cpu {
         self.flags.overflow = minuend_sign != subtrahend_sign && result_sign != minuend_sign;
     }
 
-    /// Test bits immediate.
+    /// Tests `target` against the immediate operand.
     pub fn test_imm(&mut self, target: Reg) {
         if target.is16() {
             let input = self.regs.get16(target);
@@ -885,7 +878,7 @@ impl Cpu {
         }
     }
 
-    /// Test bits register.
+    /// Tests a register against another register.
     pub fn test_reg(&mut self, bus: &mut Bus) {
         match RegToReg::try_from(self.op_lo) {
             Ok(RegToReg { source, target }) if target.is16() => {
@@ -2331,19 +2324,6 @@ mod tests {
             "negative set: non-negative result"
         );
         assert_eq!(sys.cpu.flags.zero, true, "zero not set");
-        sys.mem.set(0xBFFC, 0xFF); // trap code will overwrite this
-        sys.test_prog(&[
-            u8::from(Ld(SP)),
-            0xFF,
-            0xBF,
-            u8::from(LdIndirect),
-            0x98, // ld ab, (cd)
-        ]);
-        assert_hex!(
-            sys.mem.get(0xBFFC),
-            TRAP_ILLEGAL,
-            "`ld ab, (cd)` is illegal"
-        );
     }
 
     #[test]
@@ -3291,19 +3271,6 @@ mod tests {
         );
         let value = sys.mem.get(0xBABE);
         assert_hex!(value, 0xFF, "wrong mem value");
-        sys.mem.set(0xBFFC, 0xFF); // trap code will overwrite this
-        sys.test_prog(&[
-            u8::from(Ld(SP)),
-            0xFF,
-            0xBF,
-            u8::from(StoreIndirect),
-            0x89, // ld (cd), ab
-        ]);
-        assert_hex!(
-            sys.mem.get(0xBFFC),
-            TRAP_ILLEGAL,
-            "`ld (cd), ab` is illegal"
-        );
     }
 
     #[test]

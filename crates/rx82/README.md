@@ -77,16 +77,17 @@ rx82 mon --step my_prog.bin
 The monitor displays the current CPU registers and the next instruction in memory, then prompts for a command. Type `H` for help:
 
 ```txt
-RMON v1.0 (C) 1977 Solid State Technologies, Inc.
-  PC   SP  A  B  C  D  E  F  G  H ZC | NEXT
-C022 BFFF 02 00 BF FF 00 00 00 00 00 | halt
+RMON v1.0 (C) 1976 Solid State Technologies, Inc.
+  PC  A  B  C  D  E  F  G  H   SP ZC | NEXT
+C00B 02 00 FF F6 00 80 00 00 BFFF 01 | bne 0xF8
 > h
 Commands:
 G [<address>] = Go (run till halted)
 H             = Help
 M [<address>] = Memory dump
-S [<address>] = Single step
 Q             = Quit
+R             = Register display
+S [<address>] = Single step
 Enter         = Repeat last command
 >
 ```
@@ -138,16 +139,16 @@ The RX82 is a single-board computer with one R8 CPU clocked at 4Mhz, 64KiB of st
 
 | Address | Contents |
 | :--- | :---    |
-| 0x0000 | Trap/interrupt table |
-| 0x0080 | System data area |
-| 0x0100 | User RAM |
-| 0xC000 | ROM |
-| 0xFF00 | System I/O area |
-| 0xFFFE | Reset vector |
+| `0x0000` | Trap/interrupt table |
+| `0x0080` | System data area |
+| `0x0100` | User RAM |
+| `0xC000` | ROM |
+| `0xFF00` | System I/O area |
+| `0xFFFE` | Reset vector |
 
 ## Boot process
 
-At power on, the CPU loads the reset vector at 0xFFFE, which in the RX82 system holds the ROM entry point, 0xC000. Execution begins here and a simple RAM test is performed to find the highest writable address in memory. The stack pointer is initialised to this address.
+At power on, the CPU loads the reset vector at `0xFFFE`, which in the RX82 system holds the ROM entry point, `0xC000`. Execution begins here and a simple RAM test is performed to find the highest writable address in memory. The stack pointer is initialised to this address.
 
 The trap table is initialised, and all undefined traps are vectored to a single 'undefined trap' handler.
 
@@ -159,7 +160,7 @@ The following general-purpose traps are defined:
 
 | Code | Name | Purpose | Inputs |
 | :--- | :--- | :--- | :--- |
-| 0x20 | PUTCHAR | Print character to terminal | A = ASCII code of character |
+| `0x20` | PUTCHAR | Print character to terminal | A = ASCII code of character |
 
 ## Opcodes
 
@@ -199,6 +200,7 @@ If you're interested in writing an emulator, though, it's much easier to get sta
 
 # Changelog
 
+* **0.7.0** — opcode complete: `asr`, `bmi`, `bpl`, `cli`, `cpuid`, `or`, `push ps`, `pop ps`, `rol`, `ror`, `sei`, `shl`, `test`, `trapv`, `xor`; refactor ALU functions into `r8cpu` crate; negative and overflow flags; all 16-bit modes implemented; autogenerate state diagram
 * **0.6.0** — split into assembler / core / emulator crates, `lsr`, `and R, N`, `add R, N`, `sub R, N`, `jmp NN`, `bcc` / `bcs`, `sec / clc`, `include`, turbo mode, ROM improvements
 * **0.5.0** — `org` and `data` directives, traps implemented, `trap`, `rti`, `call`, `ret`, `ld (RR), R`, `ld R1, R2`, `push`, `pop`, `inc/dec (RR)`, `inc/dec (NN)`, `bra` instructions, reset vector, stack pointer, ROM binary, forward labels
 * **0.4.0** — `beq`, `bne`, `inc`, `dec`, and `cmp` instructions; zero and carry flags; backward labels, comments

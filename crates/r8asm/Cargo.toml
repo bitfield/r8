@@ -1,6 +1,6 @@
 [package]
 name = "r8asm"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["John Arundel <john@bitfieldconsulting.com>"]
 description = """An assembler for the R8 fantasy retro CPU."""
@@ -20,7 +20,7 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
-r8cpu = { path = "../r8cpu", version = "0.1.1" }
+r8cpu = { path = "../r8cpu", version = "0.2.0" }
 
 [lints]
 workspace = true
