@@ -191,7 +191,7 @@ This makes it more complicated, since the emulator must model the CPU's internal
 
 If you're interested in writing an emulator, though, it's much easier to get started with a high-level one. You can read a tutorial series on writing a high-level R8 emulator here:
 
-* [Welcome to the machine: emulating a CPU](https://bitfieldconsulting.com/posts/welcome-to-machine)
+* [Emergency in space: emulating a CPU](https://bitfieldconsulting.com/posts/emergency-space)
 
 # See also
 

@@ -24,7 +24,7 @@ states = []
 anyhow = { workspace = true }
 clap = { workspace = true }
 r8cpu = { path = "../r8cpu", version = "0.2.0" }
-r8asm = { path = "../r8asm", version = "0.2.0" }
+r8asm = { path = "../r8asm", version = "0.3.0" }
 
 [lints]
 workspace = true

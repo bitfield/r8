@@ -24,6 +24,18 @@ r8asm my_prog.asm
 
 If the program assembles correctly, this will produce a `my_prog.bin` file you can run with the monitor.
 
+Use the `--list` switch to also produce a listing to the console:
+
+```
+r8asm --list my_prog.asm
+```
+
+```
+C000              RAM_TEST:
+C000 19 FD FF         ld cd, 0xFFFD  ; top of possible RAM
+C003 10 02            ld a, 0x02
+```
+
 ## Disassembling R8 binary files
 
 Run:

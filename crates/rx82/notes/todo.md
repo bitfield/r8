@@ -20,6 +20,7 @@ Other:
 [X] System: “turbo mode”
 [ ] Assembler: define symbols (`=`)
 [ ] Assembler: format source file
+[ ] Assembler: source listing format (addr, code, source)
 [ ] Asm: report program size
 [ ] Asm: decimal literals
 [ ] Assembler: fancy error reporting (`annotate-snippets-rs`)

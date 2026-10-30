@@ -1,23 +1,17 @@
 use anyhow::{Context as _, Result, anyhow, bail};
 
-use core::{
-    fmt::{Debug, Display, Formatter},
-    iter::{self, Peekable},
-    slice::Iter,
-    str::{Chars, FromStr as _},
-};
-use std::{
-    collections::HashMap,
-    fs,
-    path::{Path, PathBuf},
-};
+use core::{mem::take, slice::Iter};
+use std::{collections::HashMap, path::Path};
 
 use r8cpu::{
     instructions::InstructionKind::{self, *},
     regs::{Reg, RegToReg, ShiftReg},
 };
 
-use Token::*;
+use crate::token::{
+    Token::{self, *},
+    Tokenizer, tokenize_source_file,
+};
 
 /// The default base address for assembled code.
 pub const BASE: u16 = 0x0100;
@@ -33,6 +27,10 @@ pub const KEYWORDS: &[&str] = &[
 pub struct Assembler {
     /// Generated object code.
     pub code: Vec<u8>,
+    /// Bytes making up the current instruction.
+    pub cur_bytes: Vec<u8>,
+    /// Tokens making up the current instruction.
+    pub cur_tokens: Vec<Token>,
     /// Next token to assemble.
     pub cursor: usize,
     /// Enables verbose debugging.
@@ -40,13 +38,17 @@ pub struct Assembler {
     /// Label table.
     pub labels: HashMap<String, u16>,
     /// Line counter.
-    pub line: usize,
+    pub line_no: usize,
+    /// Source listing.
+    pub listing: String,
     /// Location counter.
     pub loc: u16,
     /// Are we on the second pass?
     pub pass2: bool,
     /// Path to source file.
     pub path: String,
+    /// Previous value of location counter.
+    pub prev_loc: u16,
     /// Tokens to assemble.
     pub tokens: Vec<Token>,
 }
@@ -59,12 +61,14 @@ impl Assembler {
     /// * Syntax errors.
     pub fn assemble(&mut self) -> Result<Vec<u8>> {
         self.pass()
-            .context(format!("syntax error in {}:{}", self.path, self.line))?;
+            .context(format!("syntax error in {}:{}", self.path, self.line_no))?;
         self.code.clear();
+        self.listing.clear();
         self.pass2 = true;
         self.cursor = 0;
-        self.line = 1;
+        self.line_no = 1;
         self.loc = BASE;
+        self.prev_loc = BASE;
         self.pass()?;
         Ok(self.code.clone())
     }
@@ -119,6 +123,7 @@ impl Assembler {
     ///
     /// * Code too big for (target system) memory.
     pub fn emit_byte(&mut self, byte: u8) -> Result<()> {
+        self.cur_bytes.push(byte);
         self.code.push(byte);
         self.loc = self.loc.wrapping_add(1);
         if self.loc == 1 && self.code.len() > 1 {
@@ -326,6 +331,7 @@ impl Assembler {
     pub fn gen_data(&mut self) -> Result<()> {
         loop {
             match self.next_token() {
+                Err(_) => break,
                 Ok(ByteLiteral(byte)) => self.emit_byte(byte)?,
                 Ok(Comma) => {}
                 Ok(StringLiteral(string)) => {
@@ -337,7 +343,10 @@ impl Assembler {
                         }
                     }
                 }
-                Ok(Newline) | Err(_) => break,
+                Ok(Newline) => {
+                    self.update_listing();
+                    break;
+                }
                 Ok(WordLiteral(word)) => self.emit_word(word)?,
                 Ok(other) => bail!("expected immediate byte, got {other}"),
             }
@@ -645,14 +654,18 @@ impl Assembler {
     #[must_use]
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
+            cur_bytes: Vec::new(),
+            cur_tokens: Vec::new(),
             code: Vec::new(),
             cursor: 0,
             debug: false,
             labels: HashMap::new(),
-            line: 1,
+            line_no: 1,
+            listing: String::new(),
             loc: BASE,
             pass2: false,
             path: "input".to_owned(),
+            prev_loc: BASE,
             tokens,
         }
     }
@@ -666,9 +679,11 @@ impl Assembler {
         let token = self
             .tokens
             .get(self.cursor)
+            .cloned()
             .ok_or(anyhow!("unexpected end of input"))?;
+        self.cur_tokens.push(token.clone());
         self.cursor = self.cursor.checked_add(1).context("token count overflow")?;
-        Ok(token.clone())
+        Ok(token)
     }
 
     /// Processes an org directive.
@@ -701,8 +716,10 @@ impl Assembler {
     pub fn pass(&mut self) -> Result<()> {
         while let Ok(token) = self.next_token() {
             match token {
-                Comment(_) | Newline => {
-                    self.line = self.line.checked_add(1).context("line count overflow")?;
+                Comment(_) => {}
+                Newline => {
+                    self.update_listing();
+                    self.line_no = self.line_no.checked_add(1).context("line count overflow")?;
                 }
                 Keyword(kw) => self.assemble_kw(&kw)?,
                 LabelDef(label) => {
@@ -725,6 +742,67 @@ impl Assembler {
             None if self.pass2 => bail!("undefined label {label}"),
             None => 0,
         })
+    }
+
+    #[expect(clippy::let_underscore_must_use, reason = "writing to strings is safe")]
+    #[expect(clippy::pattern_type_mismatch, reason = "can't make this explicit")]
+    #[expect(clippy::let_underscore_untyped, reason = "ignoring write result")]
+    /// Adds the fully-assembled source line to the listing.
+    pub fn update_listing(&mut self) {
+        use core::fmt::Write as _;
+        let mut bytes = String::new();
+        let raw_code = take(&mut self.cur_bytes);
+        let mut code = raw_code.chunks(4);
+        if let Some(chunk) = code.next() {
+            for byte in chunk {
+                let _ = write!(bytes, " {byte:02X}");
+            }
+        }
+        let mut line = format!("{:04X}{:12}  ", self.prev_loc, bytes);
+        let line_tokens = take(&mut self.cur_tokens);
+        match line_tokens.as_slice() {
+            [Comment(comment), Newline] => {
+                let _ = writeln!(line, "; {comment}");
+            }
+            [Keyword(kw), Newline] => {
+                let _ = writeln!(line, "    {kw}");
+            }
+            tokens => {
+                for token in tokens {
+                    let _ = match token {
+                        ByteLiteral(byte) => write!(line, "{byte:#04X}"),
+                        Comma => write!(line, ", "),
+                        Comment(comment) => {
+                            let padding = 36_usize.saturating_sub(line.len());
+                            write!(line, "{} ; {comment}", " ".repeat(padding))
+                        }
+                        Identifier(text) | Illegal(text) => {
+                            write!(line, "{text}")
+                        }
+                        Include(_) => Ok(()),
+                        Keyword(kw) => write!(line, "    {kw} "),
+                        LabelDef(label) => write!(line, "{label}:"),
+                        Newline => writeln!(line),
+                        ParenClose => write!(line, ")"),
+                        ParenOpen => write!(line, "("),
+                        Plus => write!(line, "+"),
+                        Register(reg) => write!(line, "{reg}"),
+                        StringLiteral(text) => write!(line, "\"{text}\""),
+                        WordLiteral(word) => write!(line, "{word:#06X}"),
+                    };
+                }
+            }
+        }
+        self.listing.push_str(&line);
+        for chunk in code {
+            self.prev_loc = self.prev_loc.wrapping_add(4);
+            bytes.clear();
+            for byte in chunk {
+                let _ = write!(bytes, " {byte:02X}");
+            }
+            let _ = writeln!(self.listing, "{:04X}{bytes}", self.prev_loc);
+        }
+        self.prev_loc = self.loc;
     }
 }
 
@@ -956,207 +1034,6 @@ impl<'code> Disassembler<'code> {
     }
 }
 
-/// A source code token.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Token {
-    /// Hexadecimal byte literal (`0x00`).
-    ByteLiteral(u8),
-    /// Comma.
-    Comma,
-    /// Comment.
-    Comment(String),
-    /// Identifier.
-    Identifier(String),
-    /// Illegal token.
-    Illegal(String),
-    /// Include directive.
-    Include(String),
-    /// Assembler keyword.
-    Keyword(String),
-    /// Label definition.
-    LabelDef(String),
-    /// Newline character (`\n`).
-    Newline,
-    /// Closing parenthesis (`)`).
-    ParenClose,
-    /// Opening parenthesis (`(`).
-    ParenOpen,
-    /// Plus sign (`+`).
-    Plus,
-    /// Register name.
-    Register(Reg),
-    /// String literal.
-    StringLiteral(String),
-    /// Hexadecimal word literal (`0x0000`).
-    WordLiteral(u16),
-}
-
-impl Display for Token {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match *self {
-            ByteLiteral(byte) => write!(f, "ByteLiteral({byte:#04X})"),
-            WordLiteral(word) => write!(f, "WordLiteral({word:#06X})"),
-            _ => Debug::fmt(self, f),
-        }
-    }
-}
-
-pub struct Tokenizer<'src> {
-    /// Stores the source code being assembled.
-    pub chars: Peekable<Chars<'src>>,
-    /// Debug mode.
-    pub debug: bool,
-    /// Working directory (used to find included files).
-    pub dir: Option<PathBuf>,
-}
-
-impl<'src> Tokenizer<'src> {
-    /// Prints `msg` if in debug mode.
-    pub fn debug_print(&self, msg: impl AsRef<str>) {
-        if self.debug {
-            println!("{}", msg.as_ref());
-        }
-    }
-
-    /// Processes an include directive.
-    ///
-    /// # Errors
-    ///
-    /// * Any errors returned by [`tokenize_source_file`].
-    pub fn include(&mut self, raw_path: &str) -> Result<Vec<Token>> {
-        let mut path = PathBuf::from(raw_path);
-        if path.is_relative()
-            && let Some(parent) = self.dir.clone()
-        {
-            path = parent.join(path);
-        }
-        tokenize_source_file(&path)
-    }
-
-    #[must_use]
-    pub fn new(source: &'src str) -> Self {
-        Self {
-            debug: false,
-            chars: source.chars().peekable(),
-            dir: None,
-        }
-    }
-
-    #[must_use]
-    pub fn new_with_debug(source: &'src str) -> Self {
-        let mut tokenizer = Self::new(source);
-        tokenizer.debug = true;
-        tokenizer
-    }
-
-    /// Reads a comment token.
-    pub fn read_comment(&mut self) -> Token {
-        self.chars.next(); // skip ';' prefix
-        Comment(self.read_rest_of_line())
-    }
-
-    /// Reads a hex literal token.
-    pub fn read_hex_literal(&mut self) -> Token {
-        self.chars.next();
-        self.chars.next(); // skip "0x" prefix
-        let literal: String =
-            iter::from_fn(|| self.chars.next_if(char::is_ascii_hexdigit)).collect();
-        match literal.len() {
-            2 => match u8::from_str_radix(&literal, 16) {
-                Ok(value) => ByteLiteral(value),
-                Err(_) => Illegal(literal),
-            },
-            4 => match u16::from_str_radix(&literal, 16) {
-                Ok(value) => WordLiteral(value),
-                Err(_) => Illegal(literal),
-            },
-            _ => Illegal(literal),
-        }
-    }
-
-    /// Reads an identifier, register name, or keyword.
-    pub fn read_identifier(&mut self) -> Token {
-        let ident: String = iter::from_fn(|| {
-            self.chars
-                .next_if(|&ch| ch.is_ascii_alphanumeric() || ch == '_')
-        })
-        .collect();
-        self.debug_print(format!("ident: {ident}"));
-        match ident.as_str() {
-            _ if let Ok(reg) = Reg::from_str(&ident) => Register(reg),
-            "include" => Include(self.read_rest_of_line()),
-            kw if KEYWORDS.contains(&kw) => Keyword(ident),
-            label if let Some(&':') = self.chars.peek() => {
-                self.chars.next();
-                LabelDef(label.to_owned())
-            }
-            _ => Identifier(ident),
-        }
-    }
-
-    /// Reads the remainder of the current line.
-    pub fn read_rest_of_line(&mut self) -> String {
-        self.skip_whitespace();
-        iter::from_fn(|| self.chars.next_if(|&ch| ch != '\r' && ch != '\n')).collect()
-    }
-
-    /// Reads a string literal token.
-    pub fn read_string(&mut self) -> Token {
-        self.chars.next(); // skip opening " delimiter
-        let string: String = iter::from_fn(|| self.chars.next_if(|&ch| ch != '"')).collect();
-        self.chars.next(); // skip closing " delimiter
-        StringLiteral(string)
-    }
-
-    /// Reads a given token.
-    pub fn read_token(&mut self, token: Token) -> Token {
-        self.chars.next();
-        token
-    }
-
-    /// Advances to the next non-whitespace, non-newline character.
-    pub fn skip_whitespace(&mut self) {
-        while self
-            .chars
-            .next_if(|&ch| ch.is_whitespace() && ch != '\n')
-            .is_some()
-        {}
-    }
-
-    /// Scans tokens from the source code.
-    ///
-    /// # Errors
-    ///
-    /// * If processing an `include` directive fails.
-    pub fn tokenize(&mut self) -> Result<Vec<Token>> {
-        let mut tokens = Vec::new();
-        self.skip_whitespace();
-        while let Some(next_char) = self.chars.peek() {
-            let next = *next_char;
-            let token = match next {
-                '"' => self.read_string(),
-                '(' => self.read_token(ParenOpen),
-                ')' => self.read_token(ParenClose),
-                '+' => self.read_token(Plus),
-                ',' => self.read_token(Comma),
-                '0' => self.read_hex_literal(),
-                ';' => self.read_comment(),
-                '\n' => self.read_token(Newline),
-                ch if ch.is_alphabetic() => self.read_identifier(),
-                ch => self.read_token(Illegal(ch.to_string())),
-            };
-            self.debug_print(format!("token: {token}"));
-            if let Include(path) = token {
-                tokens.extend(self.include(&path)?);
-            } else {
-                tokens.push(token);
-            }
-            self.skip_whitespace();
-        }
-        Ok(tokens)
-    }
-}
-
 /// Formats the `data` slice as comma-separated hex bytes.
 #[must_use]
 pub fn as_hex(data: &[u8]) -> String {
@@ -1211,44 +1088,13 @@ pub fn disassemble(code: &[u8]) -> String {
     dis.next().unwrap_or_default()
 }
 
-/// Tokenize `input`.
-///
-/// # Errors
-///
-/// * As for [`Tokenizer::tokenize`].
-pub fn tokenize(input: &str) -> Result<Vec<Token>> {
-    Tokenizer::new(input).tokenize()
-}
-
-/// Tokenize source file at `path`.
-///
-/// # Errors
-///
-/// * Any errors returned by [`fs::read_to_string`].
-pub fn tokenize_source_file(path: impl AsRef<Path>) -> Result<Vec<Token>> {
-    let path = path.as_ref();
-    let source = fs::read_to_string(path).context(format!("{}", path.display()))?;
-    let mut tokenizer = Tokenizer::new(&source);
-    if let Some(parent) = path.parent() {
-        tokenizer.dir = Some(PathBuf::from(parent));
-    }
-    tokenizer.tokenize()
-}
-
-/// Tokenize `input` with verbose debugging.
-///
-/// # Errors
-///
-/// * As for [`Tokenizer::tokenize`].
-pub fn tokenize_with_debug(input: &str) -> Result<Vec<Token>> {
-    Tokenizer::new_with_debug(input).tokenize()
-}
-
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "tests")]
 #[expect(clippy::expect_used, reason = "tests")]
 #[expect(clippy::default_numeric_fallback, reason = "hex literals")]
 mod tests {
+    use crate::token::tokenize;
+
     use super::*;
 
     macro_rules! assert_asm {
@@ -1272,6 +1118,15 @@ mod tests {
                 "wrong disassembly for {}",
                 as_hex(&$generated)
             );
+        };
+    }
+
+    macro_rules! assert_eq_lines {
+        ( $got:expr, $want:expr ) => {
+            let mut got_lines = $got.lines();
+            for want_line in $want.lines() {
+                assert_eq!(got_lines.next().unwrap_or_default(), want_line);
+            }
         };
     }
 
@@ -1301,7 +1156,44 @@ mod tests {
         let mut asm = Assembler::new(tokenize(source).unwrap());
         asm.debug = true;
         asm.assemble().unwrap();
-        assert_eq!(asm.line, 3, "wrong line count");
+        assert_eq!(asm.line_no, 3, "wrong line count");
+    }
+
+    #[test]
+    fn assembler_generates_listing() {
+        let source = "; start
+        org 0xC000
+        ld a, 0x10
+    LOOP:
+        dec a
+        beq 0x03
+        jmp LOOP ; repeat
+    END:
+        ld cd, 0xBABE ; babe
+        ld h, (cd) ; lined up with above
+        halt
+        data 0x0E, \"Hello, world!\", 0x0A
+";
+        let mut asm = Assembler::new(tokenize(source).unwrap());
+        asm.debug = true;
+        asm.assemble().unwrap();
+        let listing = "0100              ; start
+0100                  org 0xC000
+C000 10 10            ld a, 0x10
+C002              LOOP:
+C002 40               dec a
+C003 F1 03            beq 0x03
+C005 F7 02 C0         jmp LOOP       ; repeat
+C008              END:
+C008 19 BE BA         ld cd, 0xBABE  ; babe
+C00B 1D 97            ld h, (cd)     ; lined up with above
+C00D 00               halt
+C00E 0E 48 65 6C      data 0x0E, \"Hello, world!\", 0x0A
+C012 6C 6F 2C 20
+C016 77 6F 72 6C
+C01A 64 21 0A
+";
+        assert_eq_lines!(asm.listing, listing);
     }
 
     #[test]

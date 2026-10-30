@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 
 use std::{fs, path::PathBuf};
 
-use r8asm::{Disassembler, assemble_source_file};
+use r8asm::{Disassembler, asm::Assembler, assemble_source_file, token::tokenize_source_file};
 use rx82::{doc::opcodes, monitor::Monitor};
 
 use crate::DocCommand::Opcodes;
@@ -19,6 +19,9 @@ struct Cli {
 enum Command {
     /// Assemble a source file.
     Asm {
+        /// Generate listing.
+        #[clap(short, long)]
+        list: bool,
         /// Paths to the source files.
         paths: Vec<PathBuf>,
     },
@@ -71,9 +74,15 @@ enum DocCommand {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Asm { paths } => {
+        Command::Asm { list, paths } => {
             for path in paths {
-                let data = assemble_source_file(&path)?;
+                let tokens = tokenize_source_file(&path)?;
+                let mut asm = Assembler::new(tokens);
+                asm.path = path.display().to_string();
+                let data = asm.assemble()?;
+                if list {
+                    println!("{}", asm.listing);
+                }
                 let mut bin_path = path.clone();
                 bin_path.set_extension("bin");
                 fs::write(bin_path, data)?;
