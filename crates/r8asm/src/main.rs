@@ -9,17 +9,24 @@ use r8asm::{
 };
 
 /// An assembler for the R8 fantasy retro CPU.
+#[expect(clippy::struct_excessive_bools, reason = "I'll be the judge of that")]
 #[derive(Debug, Parser)]
 struct Args {
     /// Disassemble.
-    #[clap(short, long, conflicts_with = "list")]
+    #[clap(short, long, conflicts_with_all = ["list", "format", "stdoutformat"])]
     dis: bool,
+    /// Format source code.
+    #[clap(short, long, conflicts_with_all = ["list", "dis", "stdoutformat"])]
+    format: bool,
     /// Generate listing.
     #[clap(short, long)]
     list: bool,
     /// Paths to the source or binary files.
     #[clap(required = true)]
     paths: Vec<PathBuf>,
+    /// Format source code to stdout.
+    #[clap(short, long, conflicts_with_all = ["list", "format", "dis"])]
+    stdoutformat: bool,
 }
 
 fn main() -> Result<()> {
@@ -35,6 +42,14 @@ fn main() -> Result<()> {
             let mut asm = Assembler::new(tokens);
             asm.path = path.display().to_string();
             let data = asm.assemble()?;
+            if args.format {
+                fs::write(path, asm.source)?;
+                continue;
+            }
+            if args.stdoutformat {
+                print!("{}", asm.source);
+                continue;
+            }
             if args.list {
                 println!("{}", asm.listing);
             }

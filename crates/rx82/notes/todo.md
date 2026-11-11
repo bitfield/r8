@@ -19,8 +19,8 @@ Other:
 [ ] Monitor: command history/editing (`rustyline`)
 [X] System: “turbo mode”
 [ ] Assembler: define symbols (`=`)
-[ ] Assembler: format source file
-[ ] Assembler: source listing format (addr, code, source)
+[X] Assembler: format source file
+[X] Assembler: source listing format (addr, code, source)
 [ ] Asm: report program size
 [ ] Asm: decimal literals
 [ ] Assembler: fancy error reporting (`annotate-snippets-rs`)

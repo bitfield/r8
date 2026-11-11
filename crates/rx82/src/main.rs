@@ -1,154 +1,47 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::Parser;
 
 use std::{fs, path::PathBuf};
 
-use r8asm::{Disassembler, asm::Assembler, assemble_source_file, token::tokenize_source_file};
-use rx82::{doc::opcodes, monitor::Monitor};
-
-use crate::DocCommand::Opcodes;
+use rx82::monitor::Monitor;
 
 /// An emulator for the RX82 fantasy retro computer system.
 #[derive(Debug, Parser)]
-struct Cli {
-    #[clap(subcommand)]
-    command: Command,
-}
-
-#[derive(Debug, Subcommand)]
-enum Command {
-    /// Assemble a source file.
-    Asm {
-        /// Generate listing.
-        #[clap(short, long)]
-        list: bool,
-        /// Paths to the source files.
-        paths: Vec<PathBuf>,
-    },
-    /// Disassemble a binary file.
-    Dis {
-        /// Paths to the binary files.
-        paths: Vec<PathBuf>,
-    },
-    /// Generate documentation.
-    Doc {
-        #[clap(subcommand)]
-        doc_cmd: DocCommand,
-    },
-    /// Start the interactive monitor.
-    Mon {
-        /// Skip running boot ROM.
-        #[clap(long)]
-        skiprom: bool,
-        /// Single-step if loading a binary file.
-        #[clap(short, long)]
-        step: bool,
-        /// Paths to binary files to run.
-        paths: Option<Vec<PathBuf>>,
-        /// Full host-native speed.
-        #[clap(short, long)]
-        turbo: bool,
-    },
-    /// Assemble and run a program in the monitor.
-    Run {
-        /// Skip running boot ROM.
-        #[clap(long)]
-        skiprom: bool,
-        /// Single-step the program.
-        #[clap(short, long)]
-        step: bool,
-        /// Paths to the source files.
-        paths: Vec<PathBuf>,
-        /// Full host-native speed.
-        #[clap(short, long)]
-        turbo: bool,
-    },
-}
-
-#[derive(Clone, Debug, Subcommand)]
-enum DocCommand {
-    /// Generate opcode table.
-    Opcodes,
+struct Args {
+    /// Paths to binary files to run.
+    paths: Option<Vec<PathBuf>>,
+    /// Skip running boot ROM.
+    #[clap(long)]
+    skiprom: bool,
+    /// Single-step if loading a binary file.
+    #[clap(short, long)]
+    step: bool,
+    /// Full host-native speed.
+    #[clap(short, long)]
+    turbo: bool,
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
-    match cli.command {
-        Command::Asm { list, paths } => {
-            for path in paths {
-                let tokens = tokenize_source_file(&path)?;
-                let mut asm = Assembler::new(tokens);
-                asm.path = path.display().to_string();
-                let data = asm.assemble()?;
-                if list {
-                    println!("{}", asm.listing);
-                }
-                let mut bin_path = path.clone();
-                bin_path.set_extension("bin");
-                fs::write(bin_path, data)?;
-            }
-            Ok(())
-        }
-        Command::Dis { paths } => {
-            for path in paths {
-                let code = fs::read(&path)?;
-                for source in Disassembler::from(code.as_slice()) {
-                    println!("    {source}");
-                }
-            }
-            Ok(())
-        }
-        Command::Doc { doc_cmd } => {
-            match doc_cmd {
-                Opcodes => opcodes(),
-            }
-            Ok(())
-        }
-        Command::Mon {
-            paths: maybe_paths,
-            skiprom,
-            step,
-            turbo,
-        } => {
-            let mut programs = Vec::new();
-            if let Some(paths) = maybe_paths {
-                for path in paths {
-                    let program = fs::read(path)?;
-                    programs.push(program);
-                }
-            }
-            let mut mon = Monitor::default();
-            if !skiprom {
-                mon.sys.reset();
-            }
-            mon.step = step;
-            mon.sys.turbo = turbo;
-            if programs.is_empty() {
-                mon.interact()?;
-            } else {
-                for program in programs {
-                    mon.run_program(&program)?;
-                }
-            }
-            Ok(())
-        }
-        Command::Run {
-            paths,
-            skiprom,
-            step,
-            turbo,
-        } => {
-            for path in paths {
-                let program = assemble_source_file(&path)?;
-                let mut mon = Monitor::default();
-                if !skiprom {
-                    mon.sys.reset();
-                }
-                mon.step = step;
-                mon.sys.turbo = turbo;
-                mon.run_program(&program)?;
-            }
-            Ok(())
+    let args = Args::parse();
+    let mut programs = Vec::new();
+    if let Some(paths) = args.paths {
+        for path in paths {
+            let program = fs::read(path)?;
+            programs.push(program);
         }
     }
+    let mut mon = Monitor::default();
+    if !args.skiprom {
+        mon.sys.reset();
+    }
+    mon.step = args.step;
+    mon.sys.turbo = args.turbo;
+    if programs.is_empty() {
+        mon.interact()?;
+    } else {
+        for program in programs {
+            mon.run_program(&program)?;
+        }
+    }
+    Ok(())
 }

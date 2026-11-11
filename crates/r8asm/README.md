@@ -26,22 +26,40 @@ If the program assembles correctly, this will produce a `my_prog.bin` file you c
 
 Use the `--list` switch to also produce a listing to the console:
 
-```
+```sh
 r8asm --list my_prog.asm
 ```
 
-```
+```txt
 C000              RAM_TEST:
 C000 19 FD FF         ld cd, 0xFFFD  ; top of possible RAM
 C003 10 02            ld a, 0x02
 ```
 
-## Disassembling R8 binary files
-
-Run:
+The `--stdoutformat` switch will print a formatted version of the source code:
 
 ```sh
-r8asm -d my_prog.bin
+r8asm --stdoutformat my_prog.asm
+```
+
+```txt
+RAM_TEST:
+    ld cd, 0xFFFD  ; top of possible RAM
+    ld a, 0x02
+```
+
+The `--format` switch will apply the same formatting to the source file in-place:
+
+```sh
+r8asm --format my_prog.asm
+```
+
+## Disassembling R8 binary files
+
+Use the `--dis` switch to disassemble a binary file:
+
+```sh
+r8asm --dis my_prog.bin
 ```
 
 This will print the disassembled listing.
@@ -50,3 +68,7 @@ This will print the disassembled listing.
 
 * [`r8cpu`](https://crates.io/crates/r8cpu): Core types and logic for the R8 architecture.
 * [`rx82`](https://crates.io/crates/rx82): A low-level emulator for an R8-based computer system.
+
+# Changelog
+
+* **0.4.0** — listing and formatting

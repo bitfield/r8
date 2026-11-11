@@ -49,6 +49,8 @@ pub struct Assembler {
     pub path: String,
     /// Previous value of location counter.
     pub prev_loc: u16,
+    /// Formatted source code.
+    pub source: String,
     /// Tokens to assemble.
     pub tokens: Vec<Token>,
 }
@@ -64,6 +66,7 @@ impl Assembler {
             .context(format!("syntax error in {}:{}", self.path, self.line_no))?;
         self.code.clear();
         self.listing.clear();
+        self.source.clear();
         self.pass2 = true;
         self.cursor = 0;
         self.line_no = 1;
@@ -666,6 +669,7 @@ impl Assembler {
             pass2: false,
             path: "input".to_owned(),
             prev_loc: BASE,
+            source: String::new(),
             tokens,
         }
     }
@@ -728,6 +732,7 @@ impl Assembler {
                 unexpected => bail!("unexpected token {unexpected}"),
             }
         }
+        self.update_listing();
         Ok(())
     }
 
@@ -745,8 +750,6 @@ impl Assembler {
     }
 
     #[expect(clippy::let_underscore_must_use, reason = "writing to strings is safe")]
-    #[expect(clippy::pattern_type_mismatch, reason = "can't make this explicit")]
-    #[expect(clippy::let_underscore_untyped, reason = "ignoring write result")]
     /// Adds the fully-assembled source line to the listing.
     pub fn update_listing(&mut self) {
         use core::fmt::Write as _;
@@ -758,41 +761,10 @@ impl Assembler {
                 let _ = write!(bytes, " {byte:02X}");
             }
         }
-        let mut line = format!("{:04X}{:12}  ", self.prev_loc, bytes);
-        let line_tokens = take(&mut self.cur_tokens);
-        match line_tokens.as_slice() {
-            [Comment(comment), Newline] => {
-                let _ = writeln!(line, "; {comment}");
-            }
-            [Keyword(kw), Newline] => {
-                let _ = writeln!(line, "    {kw}");
-            }
-            tokens => {
-                for token in tokens {
-                    let _ = match token {
-                        ByteLiteral(byte) => write!(line, "{byte:#04X}"),
-                        Comma => write!(line, ", "),
-                        Comment(comment) => {
-                            let padding = 36_usize.saturating_sub(line.len());
-                            write!(line, "{} ; {comment}", " ".repeat(padding))
-                        }
-                        Identifier(text) | Illegal(text) => {
-                            write!(line, "{text}")
-                        }
-                        Include(_) => Ok(()),
-                        Keyword(kw) => write!(line, "    {kw} "),
-                        LabelDef(label) => write!(line, "{label}:"),
-                        Newline => writeln!(line),
-                        ParenClose => write!(line, ")"),
-                        ParenOpen => write!(line, "("),
-                        Plus => write!(line, "+"),
-                        Register(reg) => write!(line, "{reg}"),
-                        StringLiteral(text) => write!(line, "\"{text}\""),
-                        WordLiteral(word) => write!(line, "{word:#06X}"),
-                    };
-                }
-            }
-        }
+        let tokens = take(&mut self.cur_tokens);
+        let source = format_line(tokens.as_slice());
+        self.source.push_str(&source);
+        let line = format!("{:04X}{:12}  {}", self.prev_loc, bytes, source);
         self.listing.push_str(&line);
         for chunk in code {
             self.prev_loc = self.prev_loc.wrapping_add(4);
@@ -1088,6 +1060,54 @@ pub fn disassemble(code: &[u8]) -> String {
     dis.next().unwrap_or_default()
 }
 
+/// Applies canonical source formatting to a line's worth of tokens.
+#[expect(clippy::let_underscore_must_use, reason = "writing to strings is safe")]
+#[expect(clippy::pattern_type_mismatch, reason = "can't make this explicit")]
+#[expect(clippy::let_underscore_untyped, reason = "ignoring write result")]
+#[must_use]
+pub fn format_line(tokens: &[Token]) -> String {
+    use core::fmt::Write as _;
+
+    let mut source = String::new();
+    match tokens {
+        [Comment(comment), Newline] => {
+            let _ = writeln!(source, "; {comment}");
+        }
+        [Keyword(kw)] => {
+            let _ = write!(source, "    {kw}");
+        }
+        [Keyword(kw), Newline] => {
+            let _ = writeln!(source, "    {kw}");
+        }
+        line_tokens => {
+            for token in line_tokens {
+                let _ = match token {
+                    ByteLiteral(byte) => write!(source, "{byte:#04X}"),
+                    Comma => write!(source, ", "),
+                    Comment(comment) => {
+                        let padding = 18_usize.saturating_sub(source.len());
+                        write!(source, "{} ; {comment}", " ".repeat(padding))
+                    }
+                    Identifier(text) | Illegal(text) => {
+                        write!(source, "{text}")
+                    }
+                    Include(_) => Ok(()),
+                    Keyword(kw) => write!(source, "    {kw} "),
+                    LabelDef(label) => write!(source, "{label}:"),
+                    Newline => writeln!(source),
+                    ParenClose => write!(source, ")"),
+                    ParenOpen => write!(source, "("),
+                    Plus => write!(source, "+"),
+                    Register(reg) => write!(source, "{reg}"),
+                    StringLiteral(text) => write!(source, "\"{text}\""),
+                    WordLiteral(word) => write!(source, "{word:#06X}"),
+                };
+            }
+        }
+    }
+    source
+}
+
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "tests")]
 #[expect(clippy::expect_used, reason = "tests")]
@@ -1157,6 +1177,40 @@ mod tests {
         asm.debug = true;
         asm.assemble().unwrap();
         assert_eq!(asm.line_no, 3, "wrong line count");
+    }
+
+    #[test]
+    fn assembler_formats_source() {
+        let input = ";   start
+    org 0xC000
+        ld a,  0x10
+        LOOP:
+        dec a
+     beq 0x03
+        jmp LOOP ; repeat
+    END:
+            ld cd, 0xBABE ; babe
+        ld h, (cd) ; lined up with above
+        halt
+        data 0x0E, \"Hello, world!\", 0x0A
+";
+        let mut asm = Assembler::new(tokenize(input).unwrap());
+        asm.debug = true;
+        asm.assemble().unwrap();
+        let source = "; start
+    org 0xC000
+    ld a, 0x10
+LOOP:
+    dec a
+    beq 0x03
+    jmp LOOP       ; repeat
+END:
+    ld cd, 0xBABE  ; babe
+    ld h, (cd)     ; lined up with above
+    halt
+    data 0x0E, \"Hello, world!\", 0x0A
+";
+        assert_eq_lines!(asm.source, source);
     }
 
     #[test]
