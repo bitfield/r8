@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2026 John Arundel
+// SPDX-FileCopyrightText: 2026 Zayn Otley (modifications)
+// https://ZaynOtley.com
+// https://IntuitionEngine.io
+
 use anyhow::Result;
 
 use std::io::{Write as _, stdin, stdout};
@@ -133,11 +138,15 @@ impl Monitor {
         if let Some(addr) = addr {
             self.sys.cpu.pc = addr;
         }
-        loop {
-            self.sys.tick();
-            if self.sys.cpu.state == FetchOpcode && (self.sys.cpu.halt || self.step) {
-                break;
+        if self.step {
+            loop {
+                self.sys.tick();
+                if self.sys.cpu.state == FetchOpcode {
+                    break;
+                }
             }
+        } else {
+            self.sys.run();
         }
         self.last_addr = Some(self.sys.cpu.pc);
     }

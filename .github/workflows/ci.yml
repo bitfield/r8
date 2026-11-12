@@ -19,8 +19,18 @@ jobs:
           components: "clippy, rustfmt"
           toolchain: "stable"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.x'
+          cache: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential libclang-dev
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features
+      - run: cargo clippy --all-targets --no-default-features --features states
+      - run: go test ./... && go vet ./... && go test -race ./...
+        working-directory: crates/rx82/jit
+      - run: test -z "$(gofmt -l .)"
+        working-directory: crates/rx82/jit
 
   test:
     strategy:
@@ -35,4 +45,31 @@ jobs:
         with:
           toolchain: "stable"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        if: runner.os == 'Linux'
+        with:
+          go-version: '1.27.x'
+          cache: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential libclang-dev
+        if: runner.os == 'Linux'
       - run: cargo test --all-features
+      - run: cargo test -p rx82 --test jit_console
+        if: runner.os == 'Linux'
+      - run: cargo build -p rx82 && cargo build -p rx82 --features jit
+        if: runner.os == 'Linux'
+      - run: cargo test --release -p rx82 --features jit --test jit_acceptance -- --ignored
+        if: runner.os == 'Linux'
+      - run: python3 tools/test_cargo_jit.py
+        if: runner.os == 'Linux'
+      - run: python3 tools/test_package_jit.py
+        if: runner.os == 'Linux'
+      - run: python3 tools/package_jit.py --output "${{ runner.temp }}/rx82-package"
+        if: runner.os == 'Linux'
+      - run: cargo test --no-default-features && cargo test --no-default-features --features states
+        env:
+          GOROOT: /nonexistent-jit-toolchain
+          CC: /nonexistent-jit-toolchain/cc
+          LIBCLANG_PATH: /nonexistent-jit-toolchain
+        if: runner.os == 'Linux'
+      - run: cargo clippy --all-targets --all-features
+        if: runner.os != 'Linux'

@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2026 John Arundel
+// SPDX-FileCopyrightText: 2026 Zayn Otley (modifications)
+// https://ZaynOtley.com
+// https://IntuitionEngine.io
+
 use core::fmt::{Display, Formatter};
 
 use anyhow::bail;
@@ -5,7 +10,7 @@ use anyhow::bail;
 use crate::regs::Reg;
 
 /// Instruction kinds.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum InstructionKind {
     /// Add immediate.
     Add(Reg),

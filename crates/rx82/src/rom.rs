@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2026 John Arundel
+// SPDX-FileCopyrightText: 2026 Zayn Otley (modifications)
+// https://ZaynOtley.com
+// https://IntuitionEngine.io
+
 use crate::{bus::Bus, system::Device};
 
 /// A system ROM.
@@ -12,6 +17,10 @@ pub struct Rom {
 }
 
 impl Device for Rom {
+    fn passive_memory(&self) -> Option<(u16, u16, &[u8])> {
+        Some((self.start, self.end, &self.data))
+    }
+
     /// Responds to a memory request if the [`Bus::mem`] line is active.
     fn tick(&mut self, bus: &mut Bus) {
         if bus.mem && self.in_range(bus.addr) {

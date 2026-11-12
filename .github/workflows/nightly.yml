@@ -18,4 +18,9 @@ jobs:
         with:
           toolchain: "stable"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.x'
+          cache: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential libclang-dev
       - run: cargo test --all-features

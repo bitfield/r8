@@ -10,7 +10,7 @@ An emulator for the RX82 fantasy retro computer system, including the R8 8-bit C
 > DOCTOR: _It's an early version. Instructions have to be punched in by machine code._\
 > ADRIC: _Oh, how boring._\
 > DOCTOR: _**Boring?**_\
-—Doctor Who, _Logopolis_
+Doctor Who, _Logopolis_
 
 ![](img/RX82.jpg)
 
@@ -19,6 +19,14 @@ An emulator for the RX82 fantasy retro computer system, including the R8 8-bit C
 ```sh
 cargo install --locked rx82
 ```
+
+## x64 JIT
+
+The Go 1.27 JIT is built and selected by default on supported Linux amd64 hosts: `cargo run -p rx82 -- program.bin`. Building it requires Go 1.27, a native C compiler and libclang. Select the interpreter with `--backend interpreter`, or build without the JIT toolchain using `cargo build -p rx82 --no-default-features`. Unsupported hosts select the interpreter.
+
+Turbo mode is enabled by default, including ROM boot; use `--no-turbo` for execution paced to the nominal 4 MHz clock. The JIT preserves CPU-cycle and device scheduling. Turbo mode uses bounded native regions for passive memory systems, including the default ROM and RAM. Debugging and attached devices that do not declare passive ROM semantics retain exact stepping.
+
+See the [JIT guide](jit/README.md) for build settings, tuning, checks, packaging and coverage limits, and [licensing notes](LICENSING.md) for the new AGPL additions.
 
 # About
 
@@ -136,11 +144,11 @@ If you're interested in writing an emulator, though, it's much easier to get sta
 
 # Changelog
 
-* **0.8.0** — remove subcommands (make assembler fully standalone) and auto-doc feature
-* **0.7.0** — opcode complete: `asr`, `bmi`, `bpl`, `cli`, `cpuid`, `or`, `push ps`, `pop ps`, `rol`, `ror`, `sei`, `shl`, `test`, `trapv`, `xor`; refactor ALU functions into `r8cpu` crate; negative and overflow flags; all 16-bit modes implemented; autogenerate state diagram
-* **0.6.0** — split into assembler / core / emulator crates, `lsr`, `and R, N`, `add R, N`, `sub R, N`, `jmp NN`, `bcc` / `bcs`, `sec / clc`, `include`, turbo mode, ROM improvements
-* **0.5.0** — `org` and `data` directives, traps implemented, `trap`, `rti`, `call`, `ret`, `ld (RR), R`, `ld R1, R2`, `push`, `pop`, `inc/dec (RR)`, `inc/dec (NN)`, `bra` instructions, reset vector, stack pointer, ROM binary, forward labels
-* **0.4.0** — `beq`, `bne`, `inc`, `dec`, and `cmp` instructions; zero and carry flags; backward labels, comments
-* **0.3.0** — all registers, load immediate and store direct instructions
-* **0.2.0** — monitor improvements, add `halt` instruction, add assembler
-* **0.1.0** — first release
+* **0.8.0**: remove subcommands (make assembler fully standalone) and auto-doc feature
+* **0.7.0**: opcode complete: `asr`, `bmi`, `bpl`, `cli`, `cpuid`, `or`, `push ps`, `pop ps`, `rol`, `ror`, `sei`, `shl`, `test`, `trapv`, `xor`; refactor ALU functions into `r8cpu` crate; negative and overflow flags; all 16-bit modes implemented; autogenerate state diagram
+* **0.6.0**: split into assembler / core / emulator crates, `lsr`, `and R, N`, `add R, N`, `sub R, N`, `jmp NN`, `bcc` / `bcs`, `sec / clc`, `include`, turbo mode, ROM improvements
+* **0.5.0**: `org` and `data` directives, traps implemented, `trap`, `rti`, `call`, `ret`, `ld (RR), R`, `ld R1, R2`, `push`, `pop`, `inc/dec (RR)`, `inc/dec (NN)`, `bra` instructions, reset vector, stack pointer, ROM binary, forward labels
+* **0.4.0**: `beq`, `bne`, `inc`, `dec`, and `cmp` instructions; zero and carry flags; backward labels, comments
+* **0.3.0**: all registers, load immediate and store direct instructions
+* **0.2.0**: monitor improvements, add `halt` instruction, add assembler
+* **0.1.0**: first release

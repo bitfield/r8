@@ -7,6 +7,37 @@ on:
   workflow_dispatch:
 
 jobs:
+  rx82-linux-jit:
+    runs-on: ubuntu-latest
+    env:
+      R8JIT_NATIVE: '0'
+      GOAMD64: v1
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: stable
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.x'
+          cache: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential libclang-dev
+      - run: cargo test -p rx82 --features jit
+      - run: cargo test --release -p rx82 --features jit --test jit_acceptance -- --ignored
+      - run: python3 tools/package_jit.py
+      - run: tar -C dist -czf dist/rx82-linux-amd64.tar.gz rx82-linux-amd64
+      - uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/rx82-linux-amd64.tar.gz
+          asset_name: rx82-linux-amd64.tar.gz
+          tag: ${{ github.ref }}
+          overwrite: true
+
   build-and-release:
     strategy:
       fail-fast: false

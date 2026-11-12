@@ -1,0 +1,105 @@
+{
+  "date": "2026-11-12",
+  "host": "Linux amd64, Xeon W-11955M",
+  "cpu_affinity": 2,
+  "go": "go1.27.3",
+  "rust": "1.99.0",
+  "profile": "Cargo release; native C defaults; Go default optimiser; no supplied PGO",
+  "chunk_cycles": 4096,
+  "compilation_included_in_cold": true,
+  "governor_control": false,
+  "exclusive_host": false,
+  "source_sha256": "2a70e6c8a7a53a11899bedbf7a3846d52076ebf81ed2c5bf7bef80c3c7bc51af",
+  "samples": [
+    {
+      "workload": "countdown",
+      "sample": 0,
+      "cycles": 7209058,
+      "interpreter_ns": 136440912,
+      "cold_jit_ns": 1356152,
+      "warm_jit_ns": 1233772,
+      "native_cycles": 7204482
+    },
+    {
+      "workload": "countdown",
+      "sample": 1,
+      "cycles": 7209058,
+      "interpreter_ns": 135529348,
+      "cold_jit_ns": 1348533,
+      "warm_jit_ns": 1211264,
+      "native_cycles": 7204482
+    },
+    {
+      "workload": "countdown",
+      "sample": 2,
+      "cycles": 7209058,
+      "interpreter_ns": 136830840,
+      "cold_jit_ns": 1347044,
+      "warm_jit_ns": 1240220,
+      "native_cycles": 7204482
+    },
+    {
+      "workload": "countdown",
+      "sample": 3,
+      "cycles": 7209058,
+      "interpreter_ns": 139777509,
+      "cold_jit_ns": 1512984,
+      "warm_jit_ns": 1236489,
+      "native_cycles": 7204482
+    },
+    {
+      "workload": "countdown",
+      "sample": 4,
+      "cycles": 7209058,
+      "interpreter_ns": 138686321,
+      "cold_jit_ns": 1827291,
+      "warm_jit_ns": 1448364,
+      "native_cycles": 7204482
+    },
+    {
+      "workload": "memcpy",
+      "sample": 0,
+      "cycles": 11258,
+      "interpreter_ns": 270769,
+      "cold_jit_ns": 81585,
+      "warm_jit_ns": 3882,
+      "native_cycles": 11255
+    },
+    {
+      "workload": "memcpy",
+      "sample": 1,
+      "cycles": 11258,
+      "interpreter_ns": 264747,
+      "cold_jit_ns": 51960,
+      "warm_jit_ns": 3758,
+      "native_cycles": 11255
+    },
+    {
+      "workload": "memcpy",
+      "sample": 2,
+      "cycles": 11258,
+      "interpreter_ns": 266844,
+      "cold_jit_ns": 37601,
+      "warm_jit_ns": 3663,
+      "native_cycles": 11255
+    },
+    {
+      "workload": "memcpy",
+      "sample": 3,
+      "cycles": 11258,
+      "interpreter_ns": 260867,
+      "cold_jit_ns": 37117,
+      "warm_jit_ns": 3603,
+      "native_cycles": 11255
+    },
+    {
+      "workload": "memcpy",
+      "sample": 4,
+      "cycles": 11258,
+      "interpreter_ns": 263783,
+      "cold_jit_ns": 32242,
+      "warm_jit_ns": 3565,
+      "native_cycles": 11255
+    }
+  ]
+}

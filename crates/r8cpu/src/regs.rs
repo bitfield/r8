@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2026 John Arundel
+// SPDX-FileCopyrightText: 2026 Zayn Otley (modifications)
+// https://ZaynOtley.com
+// https://IntuitionEngine.io
+
 use anyhow::bail;
 
 use core::{
@@ -169,6 +174,15 @@ pub struct Regs {
 }
 
 impl Regs {
+    /// Returns byte registers in architectural A through H order.
+    #[must_use]
+    #[inline]
+    pub const fn bytes(&self) -> [u8; 8] {
+        [
+            self.ra, self.rb, self.rc, self.rd, self.re, self.rf, self.rg, self.rh,
+        ]
+    }
+
     /// Returns the value in register `reg`.
     #[must_use]
     pub fn get(&self, reg: Reg) -> u8 {
@@ -229,6 +243,13 @@ impl Regs {
             other => unreachable!("set16() called with 8-bit register '{other}'"),
         }
     }
+    /// Replaces byte registers without changing the stack pointer.
+    #[inline]
+    pub fn set_bytes(&mut self, bytes: [u8; 8]) {
+        [
+            self.ra, self.rb, self.rc, self.rd, self.re, self.rf, self.rg, self.rh,
+        ] = bytes;
+    }
 }
 
 pub struct ShiftReg {
@@ -264,6 +285,24 @@ mod tests {
     use crate::regs::{Reg::AB, Reg::*};
 
     use super::*;
+
+    #[test]
+    fn byte_register_snapshot_preserves_pairs_and_stack_pointer() {
+        let mut regs = Regs::default();
+        regs.set16(SP, 0xABCD);
+        regs.set_bytes([0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]);
+        assert_eq!(
+            regs.bytes(),
+            [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]
+        );
+        assert_eq!(regs.get16(AB), 0x1234);
+        assert_eq!(regs.get16(CD), 0x5678);
+        assert_eq!(regs.get16(EF), 0x9ABC);
+        assert_eq!(regs.get16(GH), 0xDEF0);
+        assert_eq!(regs.get16(SP), 0xABCD);
+        regs.set(C, 0xFF);
+        assert_eq!(regs.bytes()[2], 0xFF);
+    }
 
     #[test]
     fn addressing_individual_regs_works() {

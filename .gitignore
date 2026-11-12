@@ -1,4 +1,5 @@
 /target
+/dist
 tmp*.*
 *.bin
 !functional_tests/*.bin

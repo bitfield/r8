@@ -1,3 +1,8 @@
+// SPDX-FileCopyrightText: 2026 John Arundel
+// SPDX-FileCopyrightText: 2026 Zayn Otley (modifications)
+// https://ZaynOtley.com
+// https://IntuitionEngine.io
+
 use anyhow::Result;
 
 use core::fmt::Write as _;
@@ -5,13 +10,24 @@ use core::fmt::Write as _;
 use r8asm::{assemble_with_debug, disassemble};
 use r8cpu::regs::Reg::*;
 
-use crate::{bus::Bus, clock::Clock, cpu::Cpu, memory::Memory, rom::Rom, state::State};
+use crate::{
+    backend::Backend, bus::Bus, clock::Clock, cpu::Cpu, memory::Memory, rom::Rom, state::State,
+};
 
 /// The RX82 ROM code.
 pub const ROM_DATA: &[u8] = include_bytes!("../sys/rx82_rom.bin");
 
 /// The trait that all devices connected to the [`Bus`] implement.
 pub trait Device {
+    /// Declares a passive ROM mapping for bounded native execution.
+    ///
+    /// The device must only supply bytes from this range, including on writes,
+    /// with zero for missing bytes. It must have no other observable tick effects.
+    /// Returning `None` preserves exact cycle stepping for the whole system.
+    fn passive_memory(&self) -> Option<(u16, u16, &[u8])> {
+        None
+    }
+
     /// Notifies the device that a new clock cycle has begun.
     ///
     /// The implementation of `tick` should be fast (<<250ns), because there may be any
@@ -51,6 +67,8 @@ pub struct Snapshot {
 /// cycle is actually due. Thus the clock can only slow down a speeding system, not
 /// speed up a slow one.
 pub struct System {
+    /// Selected CPU execution backend.
+    pub backend: Backend,
     /// The system bus.
     pub bus: Bus,
     /// The system clock.
@@ -75,6 +93,7 @@ impl Default for System {
     /// The default `System` has all-default devices.
     fn default() -> Self {
         let mut sys = Self {
+            backend: Backend::default(),
             bus: Bus::default(),
             clock: Box::new(Clock::default()),
             cpu: Cpu::default(),
@@ -130,6 +149,36 @@ impl System {
         disassemble(&code)
     }
 
+    #[cfg(r8jit_native)]
+    fn native_source(&self) -> Option<&[u8]> {
+        let pc = self.cpu.pc;
+        let mut limit = u16::MAX;
+        let mut source = None;
+        for device in &self.devices {
+            let (start, end, data) = device.passive_memory()?;
+            if start <= pc && pc <= end && source.is_none() {
+                limit = limit.min(end);
+                source = Some((start, data));
+            } else if pc < start {
+                limit = limit.min(start.saturating_sub(1));
+            } else {
+                // Lower-priority mappings cannot override the selected bytes.
+            }
+        }
+        if source.is_none() {
+            limit = limit.min(self.mem.end);
+        }
+        let (start, data) = source.unwrap_or((self.mem.start, &self.mem.data));
+        if pc < start || pc > limit {
+            return None;
+        }
+        let offset = usize::from(pc.saturating_sub(start));
+        let length = usize::from(limit.saturating_sub(pc))
+            .saturating_add(1)
+            .min(256);
+        data.get(offset..offset.saturating_add(length))
+    }
+
     /// Reads the contents of system memory at logical address `addr`.
     ///
     /// This may be RAM, ROM, or a memory-mapped I/O device: the monitor puts the
@@ -161,6 +210,9 @@ impl System {
     /// This resets the CPU to its default state and starts execution from the reset
     /// vector. Memory and other devices are not affected.
     pub fn reset(&mut self) {
+        if self.backend.clear_cache().is_err() {
+            self.backend = Backend::Interpreter;
+        }
         self.cpu.reset(&mut self.bus);
         self.run();
     }
@@ -169,8 +221,67 @@ impl System {
     pub fn run(&mut self) {
         self.cpu.halt = false;
         while !self.cpu.halt {
-            self.tick();
+            self.run_cycles(4096);
         }
+    }
+
+    /// Runs at most `budget` clock cycles, stopping early when the CPU halts.
+    /// Exact stepping remains available through [`Self::tick`].
+    #[cfg_attr(
+        r8jit_native,
+        expect(clippy::pattern_type_mismatch, reason = "borrow selected backend")
+    )]
+    pub fn run_cycles(&mut self, budget: u32) -> u32 {
+        let mut completed = 0_u32;
+        while completed < budget && !self.cpu.halt {
+            #[cfg(r8jit_native)]
+            if matches!(self.backend, Backend::Jit(_))
+                && self.turbo
+                && !self.debug
+                && !self.bus.debug
+                && !self.bus.write
+                && !cfg!(feature = "states")
+                && self.cpu.state == State::FetchOpcode
+                && self.bus.pending_write.is_none()
+                && let Some(code) = self.native_source()
+            {
+                // A short source copy lets CPU and backend fields be borrowed
+                // independently while devices retain ownership of their memory.
+                let mut source = [0_u8; 256];
+                let length = code.len();
+                if let Some(target) = source.get_mut(..length) {
+                    target.copy_from_slice(code);
+                    let ram_allowed = self.devices.iter().all(|device| {
+                        device.passive_memory().is_some_and(|(start, end, _)| {
+                            end < self.mem.start || start > self.mem.end
+                        })
+                    });
+                    let ram = ram_allowed.then_some(&mut self.mem);
+                    let Backend::Jit(jit) = &mut self.backend else {
+                        self.tick();
+                        completed = completed.wrapping_add(1);
+                        continue;
+                    };
+                    let cycles = jit.run_region(
+                        &mut self.cpu,
+                        &mut self.bus,
+                        source.get(..length).unwrap_or_default(),
+                        budget.saturating_sub(completed).min(4096),
+                        ram,
+                    );
+                    if cycles != 0 {
+                        self.cycles = self
+                            .cycles
+                            .wrapping_add(u16::try_from(cycles).unwrap_or_default());
+                        completed = completed.wrapping_add(cycles);
+                        continue;
+                    }
+                }
+            }
+            self.tick();
+            completed = completed.wrapping_add(1);
+        }
+        completed
     }
 
     /// Loads `program` at start of user memory and runs until halted.
@@ -182,6 +293,15 @@ impl System {
         self.mem.load(0x0100, program)?;
         self.cpu.pc = 0x0100;
         self.run();
+        Ok(())
+    }
+
+    /// Selects a CPU backend while preserving the current machine state.
+    ///
+    /// # Errors
+    /// Returns an error if the backend is unknown or unavailable.
+    pub fn select_backend(&mut self, name: &str) -> Result<()> {
+        self.backend = Backend::select(name)?;
         Ok(())
     }
 
@@ -211,7 +331,7 @@ impl System {
     /// Advances the system by one clock cycle.
     pub fn tick(&mut self) {
         let state = self.cpu.state; // save before cpu.tick() overwrites it
-        self.cpu.tick(&mut self.bus);
+        self.backend.tick(&mut self.cpu, &mut self.bus);
         for device in &mut self.devices {
             device.tick(&mut self.bus);
         }
