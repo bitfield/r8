@@ -9,7 +9,6 @@ categories = ["emulators"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 documentation = "https://docs.rs/rx82"
-homepage = "https://github.com/bitfield/r8/tree/main/crates/rx82"
 repository = "https://github.com/bitfield/r8/tree/main/crates/rx82"
 exclude = ["/.github/"]
 
@@ -25,6 +24,7 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 r8cpu = { path = "../r8cpu", version = "0.2.0" }
 r8asm = { path = "../r8asm", version = "0.4.0" }
+colored = "3.1.1"
 
 [lints]
 workspace = true
