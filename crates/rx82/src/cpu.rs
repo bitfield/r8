@@ -63,8 +63,6 @@ impl Default for Cpu {
 impl Device for Cpu {
     /// Transitions to the next state.
     fn tick(&mut self, bus: &mut Bus) {
-        #[cfg(feature = "states")]
-        let prev_state = self.state;
         self.state = match self.state {
             Decode => {
                 let opcode = bus.data;
@@ -209,8 +207,6 @@ impl Device for Cpu {
             WaitVecHi => ReadVecHi,
             WaitVecLo(addr) => ReadVecLo(addr),
         };
-        #[cfg(feature = "states")]
-        println!("    {} -> {}", prev_state, self.state);
     }
 }
 

@@ -1,3 +1,4 @@
+#![cfg(feature = "test")]
 use anyhow::{Result, bail};
 use clap::{CommandFactory as _, Parser};
 use colored::Colorize as _;

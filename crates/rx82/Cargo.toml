@@ -17,14 +17,14 @@ github = { repository = "bitfield/r8", workflow = "CI" }
 maintenance = { status = "actively-developed" }
 
 [features]
-states = []
+test = ["dep:colored"]
 
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
 r8cpu = { path = "../r8cpu", version = "0.2.0" }
 r8asm = { path = "../r8asm", version = "0.4.0" }
-colored = "3.1.1"
+colored = { version = "3.1.1", optional = true }
 
 [lints]
 workspace = true
