@@ -8,9 +8,15 @@ An assembler for the R8 fantasy retro CPU architecture.
 
 # Installation
 
+With Cargo:
+
 ```sh
 cargo install --locked r8asm
 ```
+
+Otherwise, download and install the latest release for your platform here:
+
+* [https://github.com/bitfield/r8/releases/latest](https://github.com/bitfield/r8/releases/latest)
 
 # Usage
 
