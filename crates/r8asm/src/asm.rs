@@ -190,20 +190,6 @@ impl Assembler {
         }
     }
 
-    /// Returns the operand bytes for an instruction targeting `reg`.
-    ///
-    /// # Errors
-    ///
-    /// * Missing or wrong size operand.
-    pub fn expect_op_for_reg(&mut self, reg: Reg) -> Result<Vec<u8>> {
-        Ok(match self.next_token()? {
-            ByteLiteral(operand) if !reg.is16() => vec![operand],
-            WordLiteral(operand) if reg.is16() => Vec::from(operand.to_le_bytes()),
-            other if reg.is16() => bail!("expected immediate word, got {other}"),
-            other => bail!("expected immediate byte, got {other}"),
-        })
-    }
-
     /// Returns the register named by the next token.
     ///
     /// # Errors
@@ -266,13 +252,17 @@ impl Assembler {
         };
         self.expect(&Comma)?;
         match self.next_token()? {
-            ByteLiteral(addend) if !target.is16() => {
+            ByteLiteral(operand) if !target.is16() => {
                 self.emit_byte(u8::from(imm_kind))?;
-                self.emit_byte(addend)
+                self.emit_byte(operand)
             }
-            WordLiteral(addend) if target.is16() => {
+            Identifier(label) => {
                 self.emit_byte(u8::from(imm_kind))?;
-                self.emit_word(addend)
+                self.emit_word(self.resolve_label(&label)?)
+            }
+            WordLiteral(operand) if target.is16() => {
+                self.emit_byte(u8::from(imm_kind))?;
+                self.emit_word(operand)
             }
             Register(source) if source.is16() == target.is16() => {
                 self.emit_byte(u8::from(reg_kind))?;
@@ -365,6 +355,12 @@ impl Assembler {
     pub fn gen_dec(&mut self) -> Result<()> {
         match self.next_token()? {
             ParenOpen => match self.next_token()? {
+                Identifier(label) => {
+                    self.expect(&ParenClose)?;
+                    let addr = self.resolve_label(&label)?;
+                    self.emit_byte(u8::from(DecMem))?;
+                    self.emit_word(addr)?;
+                }
                 Register(reg) if reg.is16() => {
                     self.expect(&ParenClose)?;
                     self.emit_byte(u8::from(DecIndirect))?;
@@ -391,6 +387,12 @@ impl Assembler {
     pub fn gen_inc(&mut self) -> Result<()> {
         match self.next_token()? {
             ParenOpen => match self.next_token()? {
+                Identifier(label) => {
+                    self.expect(&ParenClose)?;
+                    let addr = self.resolve_label(&label)?;
+                    self.emit_byte(u8::from(IncMem))?;
+                    self.emit_word(addr)?;
+                }
                 Register(reg) if reg.is16() => {
                     self.expect(&ParenClose)?;
                     self.emit_byte(u8::from(IncIndirect))?;
@@ -510,6 +512,7 @@ impl Assembler {
     /// * Syntax errors.
     pub fn gen_ld_or_store(&mut self) -> Result<()> {
         match self.next_token()? {
+            Identifier(label) => self.gen_store_direct(self.resolve_label(&label)?),
             ParenOpen => self.gen_store_indirect(),
             Register(target) => self.gen_ld(target),
             WordLiteral(addr) => self.gen_store_direct(addr),
@@ -1161,16 +1164,6 @@ mod tests {
     }
 
     #[test]
-    fn assembler_accepts_label_as_immediate_word_value() {
-        let source = "
-        LABEL:
-            ld cd, LABEL
-";
-        let generated = assemble_with_debug(source).unwrap();
-        assert_asm!(source, generated, &[u8::from(Ld(Reg::CD)), 0x00, 0x01]);
-    }
-
-    #[test]
     fn assembler_counts_lines_correctly() {
         let source = "ld a, 0xFF\ninc a\nhalt";
         let mut asm = Assembler::new(tokenize(source).unwrap());
@@ -1341,6 +1334,41 @@ C01A 64 21 0A
 ";
         let generated = assemble_with_debug(source).unwrap();
         let object = &[u8::from(Call), 0x04, 0x01, u8::from(Halt), u8::from(Halt)];
+        assert_asm!(source, generated, object);
+    }
+
+    #[test]
+    fn assembler_resolves_labels_as_immediate_operands() {
+        let source = "
+        cmp ab, AHEAD
+        ld cd, AHEAD
+        ld AHEAD, a
+        inc (AHEAD)
+        dec (AHEAD)
+        halt
+    AHEAD:
+        halt
+";
+        let generated = assemble_with_debug(source).unwrap();
+        let object = &[
+            u8::from(Cmp(Reg::AB)),
+            0x10,
+            0x01,
+            u8::from(Ld(Reg::CD)),
+            0x10,
+            0x01,
+            u8::from(Store(Reg::A)),
+            0x10,
+            0x01,
+            u8::from(IncMem),
+            0x10,
+            0x01,
+            u8::from(DecMem),
+            0x10,
+            0x01,
+            u8::from(Halt),
+            u8::from(Halt),
+        ];
         assert_asm!(source, generated, object);
     }
 

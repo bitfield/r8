@@ -64,9 +64,7 @@ PRINT_COPYRIGHT:
 
 PRINT_BYTES_FREE:
     ld ab, sp      ; highest usable RAM address
-    clc
-    add b, 0x01    ; bytes free is one more than that
-    add a, 0x00    ; propagate carry
+    inc ab         ; bytes free is one more than that
     sec
     sub a, 0x01    ; minus 256 bytes for trap table / data area
     call PRINT_HEX
